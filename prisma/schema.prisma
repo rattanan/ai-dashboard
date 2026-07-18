@@ -1,0 +1,589 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum OrganizationRole {
+  OWNER
+  ADMIN
+  DASHBOARD_DESIGNER
+  ANALYST
+  VIEWER
+}
+
+enum DataSourceType {
+  MYSQL
+  POSTGRESQL
+  MSSQL
+  ORACLE
+  EXCEL
+}
+
+enum DataSourceStatus {
+  DRAFT
+  TESTING
+  CONNECTED
+  FAILED
+  DISABLED
+}
+
+enum DashboardStatus {
+  DRAFT
+  ANALYZING
+  GENERATED
+  PUBLISHED
+  ARCHIVED
+}
+
+enum DashboardLayout {
+  EXECUTIVE_OVERVIEW
+  OPERATIONAL_MONITORING
+  ANALYTICAL_EXPLORER
+  CONTROL_CENTER
+  CUSTOM
+}
+
+enum DashboardVisualStyle {
+  CLEAN_PROFESSIONAL
+  MODERN_ENTERPRISE
+  MINIMAL_LIGHT
+  DARK_CONTROL_ROOM
+  DATA_DENSE
+}
+
+enum DashboardTheme {
+  BLUE
+  EMERALD
+  AMBER
+  SLATE
+  CUSTOM
+}
+
+enum WidgetType {
+  KPI
+  BAR_CHART
+  LINE_CHART
+  AREA_CHART
+  PIE_CHART
+  DONUT_CHART
+  SCATTER_CHART
+  GAUGE
+  TABLE
+  TEXT_INSIGHT
+  FILTER
+}
+
+enum AnalysisJobStatus {
+  QUEUED
+  RUNNING
+  WAITING_FOR_APPROVAL
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum AnalysisStage {
+  PREPARING_METADATA
+  ANALYZING_SCHEMA
+  IDENTIFYING_BUSINESS_ENTITIES
+  RECOMMENDING_KPIS
+  GENERATING_QUERIES
+  VALIDATING_QUERIES
+  EXECUTING_QUERIES
+  GENERATING_WIDGETS
+  GENERATING_INSIGHTS
+  FINALIZING_DASHBOARD
+}
+
+enum AnalysisArtifactType {
+  METADATA_CONTEXT
+  SCHEMA_ANALYSIS
+  KPI_RECOMMENDATIONS
+  DASHBOARD_PLAN
+  WIDGET_DEFINITIONS
+  GENERATED_INSIGHTS
+}
+
+enum AnalysisRecommendationType {
+  KPI
+  WIDGET
+}
+
+enum AnalysisRecommendationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SUPERSEDED
+}
+
+enum QueryValidationStatus {
+  PROPOSED
+  VALID
+  INVALID
+}
+
+enum QueryExecutionStatus {
+  RUNNING
+  SUCCEEDED
+  FAILED
+}
+
+model User {
+  id              String                   @id @default(cuid())
+  name            String?
+  email           String                   @unique
+  emailVerified   DateTime?
+  image           String?
+  passwordHash    String?
+  accounts        Account[]
+  sessions        Session[]
+  memberships     OrganizationMember[]
+  workspaces      Workspace[]              @relation("WorkspaceCreator")
+  dataSources     DataSource[]             @relation("DataSourceCreator")
+  dashboards      Dashboard[]              @relation("DashboardCreator")
+  auditLogs       AuditLog[]               @relation("AuditActor")
+  analysisJobs    AnalysisJob[]            @relation("AnalysisRequestedBy")
+  analysisReviews AnalysisRecommendation[] @relation("AnalysisReviewedBy")
+  createdAt       DateTime                 @default(now())
+  updatedAt       DateTime                 @updatedAt
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model Organization {
+  id           String               @id @default(cuid())
+  name         String
+  slug         String               @unique
+  members      OrganizationMember[]
+  workspaces   Workspace[]
+  auditLogs    AuditLog[]
+  analysisJobs AnalysisJob[]
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+}
+
+model OrganizationMember {
+  id             String           @id @default(cuid())
+  organizationId String
+  userId         String
+  role           OrganizationRole @default(VIEWER)
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@unique([organizationId, userId])
+  @@index([userId])
+}
+
+model Workspace {
+  id              String            @id @default(cuid())
+  organizationId  String
+  name            String
+  slug            String
+  createdById     String
+  organization    Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy       User              @relation("WorkspaceCreator", fields: [createdById], references: [id])
+  dataSources     DataSource[]
+  dashboards      Dashboard[]
+  auditLogs       AuditLog[]
+  analysisJobs    AnalysisJob[]
+  aiResponseCache AiResponseCache[]
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  @@unique([organizationId, slug])
+  @@index([organizationId])
+}
+
+model DataSource {
+  id                String                @id @default(cuid())
+  workspaceId       String
+  name              String
+  type              DataSourceType
+  status            DataSourceStatus      @default(DRAFT)
+  host              String?
+  port              Int?
+  databaseName      String?
+  username          String?
+  sslEnabled        Boolean               @default(false)
+  connectionOptions Json?
+  lastTestedAt      DateTime?
+  lastConnectedAt   DateTime?
+  lastDiscoveredAt  DateTime?
+  createdById       String
+  workspace         Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy         User                  @relation("DataSourceCreator", fields: [createdById], references: [id])
+  credential        DataSourceCredential?
+  file              DataSourceFile?
+  schemas           DataSourceSchema[]
+  dashboards        DashboardDataSource[]
+  analysisJobs      AnalysisJob[]
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+
+  @@index([workspaceId, status])
+}
+
+model DataSourceCredential {
+  id           String     @id @default(cuid())
+  dataSourceId String     @unique
+  ciphertext   String
+  iv           String
+  authTag      String
+  keyVersion   String     @default("env-v1")
+  dataSource   DataSource @relation(fields: [dataSourceId], references: [id], onDelete: Cascade)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+}
+
+model DataSourceFile {
+  id           String     @id @default(cuid())
+  dataSourceId String     @unique
+  storageKey   String     @unique
+  originalName String
+  mimeType     String
+  sizeBytes    Int
+  checksum     String
+  sheetNames   Json
+  dataSource   DataSource @relation(fields: [dataSourceId], references: [id], onDelete: Cascade)
+  createdAt    DateTime   @default(now())
+}
+
+model DataSourceSchema {
+  id           String            @id @default(cuid())
+  dataSourceId String
+  name         String
+  selected     Boolean           @default(false)
+  dataSource   DataSource        @relation(fields: [dataSourceId], references: [id], onDelete: Cascade)
+  tables       DataSourceTable[]
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  @@unique([dataSourceId, name])
+  @@index([dataSourceId])
+}
+
+model DataSourceTable {
+  id                String                   @id @default(cuid())
+  schemaId          String
+  name              String
+  tableType         String
+  estimatedRowCount BigInt?
+  selected          Boolean                  @default(false)
+  schema            DataSourceSchema         @relation(fields: [schemaId], references: [id], onDelete: Cascade)
+  columns           DataSourceColumn[]
+  outgoingRelations DataSourceRelationship[] @relation("RelationshipFrom")
+  incomingRelations DataSourceRelationship[] @relation("RelationshipTo")
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
+
+  @@unique([schemaId, name])
+  @@index([schemaId])
+}
+
+model DataSourceColumn {
+  id           String          @id @default(cuid())
+  tableId      String
+  name         String
+  dataType     String
+  ordinal      Int
+  nullable     Boolean
+  primaryKey   Boolean         @default(false)
+  defaultValue String?
+  table        DataSourceTable @relation(fields: [tableId], references: [id], onDelete: Cascade)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  @@unique([tableId, name])
+  @@index([tableId])
+}
+
+model DataSourceRelationship {
+  id             String          @id @default(cuid())
+  name           String
+  fromTableId    String
+  fromColumnName String
+  toTableId      String
+  toColumnName   String
+  fromTable      DataSourceTable @relation("RelationshipFrom", fields: [fromTableId], references: [id], onDelete: Cascade)
+  toTable        DataSourceTable @relation("RelationshipTo", fields: [toTableId], references: [id], onDelete: Cascade)
+  createdAt      DateTime        @default(now())
+
+  @@unique([fromTableId, name, fromColumnName])
+  @@index([toTableId])
+}
+
+model Dashboard {
+  id                String                @id @default(cuid())
+  workspaceId       String
+  name              String
+  description       String?
+  businessObjective String?
+  businessArea      String?
+  businessQuestions String?
+  desiredKpis       String?
+  targetUsers       String?
+  reportingPeriod   String?
+  importantFilters  String?
+  status            DashboardStatus       @default(DRAFT)
+  layoutStyle       DashboardLayout       @default(EXECUTIVE_OVERVIEW)
+  visualStyle       DashboardVisualStyle  @default(CLEAN_PROFESSIONAL)
+  visualTheme       DashboardTheme        @default(BLUE)
+  customTheme       Json?
+  createdById       String
+  workspace         Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy         User                  @relation("DashboardCreator", fields: [createdById], references: [id])
+  dataSources       DashboardDataSource[]
+  versions          DashboardVersion[]
+  widgets           DashboardWidget[]
+  analysisJobs      AnalysisJob[]
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+
+  @@index([workspaceId, status])
+}
+
+model DashboardDataSource {
+  dashboardId  String
+  dataSourceId String
+  dashboard    Dashboard  @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
+  dataSource   DataSource @relation(fields: [dataSourceId], references: [id], onDelete: Cascade)
+
+  @@id([dashboardId, dataSourceId])
+  @@index([dataSourceId])
+}
+
+model DashboardVersion {
+  id          String       @id @default(cuid())
+  dashboardId String
+  version     Int
+  snapshot    Json
+  createdById String
+  dashboard   Dashboard    @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
+  analysisJob AnalysisJob?
+  createdAt   DateTime     @default(now())
+
+  @@unique([dashboardId, version])
+  @@index([dashboardId])
+}
+
+model DashboardWidget {
+  id          String     @id @default(cuid())
+  dashboardId String
+  type        WidgetType
+  title       String
+  position    Int
+  config      Json
+  dashboard   Dashboard  @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@index([dashboardId, position])
+}
+
+model AnalysisJob {
+  id               String                   @id @default(cuid())
+  organizationId   String
+  workspaceId      String
+  dashboardId      String
+  dataSourceId     String
+  status           AnalysisJobStatus        @default(QUEUED)
+  currentStage     AnalysisStage            @default(PREPARING_METADATA)
+  progressPercent  Int                      @default(0)
+  requestedById    String
+  requestId        String                   @unique
+  requestSnapshot  Json
+  resultSummary    Json?
+  runVersion       Int                      @default(1)
+  lastHeartbeatAt  DateTime?
+  startedAt        DateTime?
+  completedAt      DateTime?
+  failedAt         DateTime?
+  errorCode        String?
+  errorMessage     String?
+  organization     Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workspace        Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  dashboard        Dashboard                @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
+  dataSource       DataSource               @relation(fields: [dataSourceId], references: [id], onDelete: Cascade)
+  requestedBy      User                     @relation("AnalysisRequestedBy", fields: [requestedById], references: [id])
+  artifacts        AnalysisArtifact[]
+  recommendations  AnalysisRecommendation[]
+  queryDefinitions QueryDefinition[]
+  queryExecutions  QueryExecution[]
+  finalVersion     DashboardVersion?        @relation(fields: [finalVersionId], references: [id])
+  finalVersionId   String?                  @unique
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
+
+  @@index([workspaceId, status, updatedAt])
+  @@index([dashboardId, createdAt])
+  @@index([dataSourceId, createdAt])
+}
+
+model AnalysisArtifact {
+  id              String                   @id @default(cuid())
+  analysisJobId   String
+  type            AnalysisArtifactType
+  stage           AnalysisStage
+  revision        Int                      @default(1)
+  promptVersion   String?
+  inputHash       String
+  contentHash     String
+  provider        String?
+  model           String?
+  inputTokens     Int?
+  outputTokens    Int?
+  payload         Json
+  analysisJob     AnalysisJob              @relation(fields: [analysisJobId], references: [id], onDelete: Cascade)
+  recommendations AnalysisRecommendation[]
+  createdAt       DateTime                 @default(now())
+
+  @@unique([analysisJobId, type, revision])
+  @@index([analysisJobId, stage])
+  @@index([inputHash])
+}
+
+model AnalysisRecommendation {
+  id            String                       @id @default(cuid())
+  analysisJobId String
+  artifactId    String?
+  type          AnalysisRecommendationType
+  status        AnalysisRecommendationStatus @default(PENDING)
+  externalId    String
+  title         String
+  description   String?
+  payload       Json
+  revision      Int                          @default(1)
+  reviewedById  String?
+  reviewedAt    DateTime?
+  decisionNote  String?
+  analysisJob   AnalysisJob                  @relation(fields: [analysisJobId], references: [id], onDelete: Cascade)
+  artifact      AnalysisArtifact?            @relation(fields: [artifactId], references: [id], onDelete: SetNull)
+  reviewedBy    User?                        @relation("AnalysisReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+  queries       QueryDefinition[]
+  createdAt     DateTime                     @default(now())
+  updatedAt     DateTime                     @updatedAt
+
+  @@unique([analysisJobId, type, externalId, revision])
+  @@index([analysisJobId, status, type])
+}
+
+model QueryDefinition {
+  id               String                  @id @default(cuid())
+  analysisJobId    String
+  recommendationId String?
+  purpose          String
+  sql              String
+  sqlHash          String
+  validationStatus QueryValidationStatus   @default(PROPOSED)
+  validationErrors Json?
+  resultSchema     Json?
+  analysisJob      AnalysisJob             @relation(fields: [analysisJobId], references: [id], onDelete: Cascade)
+  recommendation   AnalysisRecommendation? @relation(fields: [recommendationId], references: [id], onDelete: SetNull)
+  executions       QueryExecution[]
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+
+  @@index([analysisJobId, validationStatus])
+  @@index([sqlHash])
+}
+
+model QueryExecution {
+  id                String               @id @default(cuid())
+  analysisJobId     String
+  queryDefinitionId String
+  status            QueryExecutionStatus @default(RUNNING)
+  startedAt         DateTime             @default(now())
+  completedAt       DateTime?
+  durationMs        Int?
+  rowCount          Int?
+  previewRows       Json?
+  errorCode         String?
+  errorMessage      String?
+  requestId         String
+  analysisJob       AnalysisJob          @relation(fields: [analysisJobId], references: [id], onDelete: Cascade)
+  queryDefinition   QueryDefinition      @relation(fields: [queryDefinitionId], references: [id], onDelete: Cascade)
+  createdAt         DateTime             @default(now())
+
+  @@index([analysisJobId, createdAt])
+  @@index([queryDefinitionId, createdAt])
+}
+
+model AiResponseCache {
+  id            String    @id @default(cuid())
+  workspaceId   String
+  provider      String
+  model         String
+  promptVersion String
+  inputHash     String
+  response      Json
+  inputTokens   Int?
+  outputTokens  Int?
+  expiresAt     DateTime?
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([workspaceId, provider, model, promptVersion, inputHash])
+  @@index([workspaceId, expiresAt])
+}
+
+model AuditLog {
+  id             String       @id @default(cuid())
+  organizationId String
+  workspaceId    String?
+  actorId        String?
+  action         String
+  entityType     String
+  entityId       String?
+  outcome        String       @default("SUCCESS")
+  metadata       Json?
+  requestId      String?
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workspace      Workspace?   @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+  actor          User?        @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+  createdAt      DateTime     @default(now())
+
+  @@index([organizationId, createdAt])
+  @@index([workspaceId, createdAt])
+}

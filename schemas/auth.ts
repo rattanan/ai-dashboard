@@ -1,0 +1,25 @@
+import { z } from "zod";
+
+const password = z
+  .string()
+  .min(12, "Use at least 12 characters")
+  .max(128)
+  .regex(/[a-z]/, "Include a lowercase letter")
+  .regex(/[A-Z]/, "Include an uppercase letter")
+  .regex(/[0-9]/, "Include a number");
+
+export const registerSchema = z.object({
+  name: z.string().trim().min(2).max(80),
+  email: z.string().trim().toLowerCase().email(),
+  password,
+});
+
+export const loginSchema = z.object({
+  email: z.string().trim().toLowerCase().email(),
+  password: z.string().min(1),
+});
+
+export const onboardingSchema = z.object({
+  organizationName: z.string().trim().min(2).max(100),
+  workspaceName: z.string().trim().min(2).max(100),
+});
