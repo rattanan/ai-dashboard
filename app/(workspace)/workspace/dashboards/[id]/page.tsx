@@ -16,10 +16,7 @@ import {
 import { dashboardRepository } from "@/server/repositories/dashboards";
 import { formatDate } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
-import {
-  Card,
-  CardContent,
-} from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { DashboardRenderer } from "@/components/dashboard/dashboard-renderer";
@@ -33,7 +30,12 @@ import { hasRole } from "@/server/auth/roles";
 import { DashboardActions } from "@/components/dashboard/dashboard-actions";
 import { canStartDashboardAnalysis } from "@/server/services/dashboard-analysis-state";
 import { DashboardCopilot } from "@/components/copilot/dashboard-copilot";
-import { InsightHighlights } from "@/components/dashboard/insight-highlights";
+import {
+  InsightHighlights,
+  type Insight,
+  type InsightHistoryItem,
+} from "@/components/dashboard/insight-highlights";
+import { insightDisplaySchema } from "@/schemas/dashboard-insights";
 
 export default async function DashboardDetailPage({
   params,
@@ -78,7 +80,7 @@ export default async function DashboardDetailPage({
     dashboard,
     dashboard.analysisJobs[0]?.requestSnapshot,
   );
-  const [latestJob, latestCompletedJob] = await Promise.all([
+  const [latestJob, latestCompletedJob, insightAuditLogs] = await Promise.all([
     db.analysisJob.findFirst({
       where: {
         dashboardId: dashboard.id,
@@ -107,6 +109,23 @@ export default async function DashboardDetailPage({
       },
       orderBy: { completedAt: "desc" },
     }),
+    db.auditLog.findMany({
+      where: {
+        organizationId: context.organizationId,
+        workspaceId: context.workspaceId,
+        actorId: context.userId,
+        entityId: dashboard.id,
+        action: {
+          in: [
+            "DASHBOARD_FILTERED_INSIGHTS_GENERATED",
+            "DASHBOARD_INSIGHT_ACKNOWLEDGED",
+          ],
+        },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+      select: { action: true, metadata: true, createdAt: true },
+    }),
   ]);
   const queries = new Map(
     latestCompletedJob?.queryDefinitions.map((query) => [query.id, query]) ??
@@ -115,6 +134,90 @@ export default async function DashboardDetailPage({
   const insights = generatedInsightsSchema(50).safeParse(
     latestCompletedJob?.artifacts[0]?.payload,
   );
+  const parseInsights = (value: unknown): Insight[] => {
+    if (!Array.isArray(value)) return [];
+    return value.flatMap((item) => {
+      const parsed = insightDisplaySchema.safeParse(item);
+      return parsed.success ? [parsed.data] : [];
+    });
+  };
+  const insightHistory = insightAuditLogs.flatMap<InsightHistoryItem>((log) => {
+    const metadata =
+      log.metadata &&
+      typeof log.metadata === "object" &&
+      !Array.isArray(log.metadata)
+        ? log.metadata
+        : null;
+    if (!metadata) return [];
+    if (log.action === "DASHBOARD_INSIGHT_ACKNOWLEDGED") {
+      const parsed = insightDisplaySchema.safeParse(
+        "insight" in metadata ? metadata.insight : null,
+      );
+      return parsed.success
+        ? [
+            {
+              type: "ACKNOWLEDGED",
+              insight: parsed.data,
+              createdAt: log.createdAt.toISOString(),
+            },
+          ]
+        : [];
+    }
+    const values =
+      "insights" in metadata && Array.isArray(metadata.insights)
+        ? metadata.insights
+        : [];
+    return values.flatMap<InsightHistoryItem>((value) => {
+      const parsed = insightDisplaySchema.safeParse(value);
+      return parsed.success
+        ? [
+            {
+              type: "GENERATED",
+              insight: parsed.data,
+              createdAt: log.createdAt.toISOString(),
+            },
+          ]
+        : [];
+    });
+  });
+  const latestGenerationIndex = insightAuditLogs.findIndex(
+    (log) => log.action === "DASHBOARD_FILTERED_INSIGHTS_GENERATED",
+  );
+  const latestGeneration =
+    latestGenerationIndex >= 0 ? insightAuditLogs[latestGenerationIndex] : null;
+  const latestGenerationMetadata =
+    latestGeneration?.metadata &&
+    typeof latestGeneration.metadata === "object" &&
+    !Array.isArray(latestGeneration.metadata)
+      ? latestGeneration.metadata
+      : null;
+  const filteredInsights = parseInsights(
+    latestGenerationMetadata && "insights" in latestGenerationMetadata
+      ? latestGenerationMetadata.insights
+      : null,
+  );
+  const displayedInsights = latestGeneration
+    ? filteredInsights
+    : insights.success
+      ? insights.data.insights
+      : [];
+  const acknowledgementWindow =
+    latestGenerationIndex >= 0
+      ? insightAuditLogs.slice(0, latestGenerationIndex)
+      : insightAuditLogs;
+  const acknowledgedCurrentInsights = acknowledgementWindow.flatMap((log) => {
+    if (log.action !== "DASHBOARD_INSIGHT_ACKNOWLEDGED") return [];
+    const metadata =
+      log.metadata &&
+      typeof log.metadata === "object" &&
+      !Array.isArray(log.metadata)
+        ? log.metadata
+        : null;
+    const parsed = insightDisplaySchema.safeParse(
+      metadata && "insight" in metadata ? metadata.insight : null,
+    );
+    return parsed.success ? [parsed.data] : [];
+  });
   const renderedWidgets = dashboard.widgets.flatMap((widget) => {
     const config =
       widget.config &&
@@ -186,34 +289,34 @@ export default async function DashboardDetailPage({
     >
       <div className="dashboard-hero p-4 sm:p-5">
         <PageHeader
-        eyebrow="Dashboard configuration"
-        title={dashboard.name}
-        description={dashboard.businessObjective || "Objective not completed"}
-        action={
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge
-              tone={dashboard.status === "ANALYZING" ? "warning" : "neutral"}
-            >
-              {dashboard.status}
-            </Badge>
-            {canEditResource ? (
-              <DashboardActions
-                dashboard={{
-                  id: dashboard.id,
-                  name: dashboard.name,
-                  status: dashboard.status,
-                  dataSourceId: primaryDataSource?.id,
-                }}
-                canEdit={canUpdate && canBuildFromSource}
-                canAnalyze={
-                  canUpdate &&
-                  (dashboard.status === "ANALYZING" || analysisAvailable)
-                }
-                canDelete={canDelete}
-              />
-            ) : null}
-          </div>
-        }
+          eyebrow="Dashboard configuration"
+          title={dashboard.name}
+          description={dashboard.businessObjective || "Objective not completed"}
+          action={
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge
+                tone={dashboard.status === "ANALYZING" ? "warning" : "neutral"}
+              >
+                {dashboard.status}
+              </Badge>
+              {canEditResource ? (
+                <DashboardActions
+                  dashboard={{
+                    id: dashboard.id,
+                    name: dashboard.name,
+                    status: dashboard.status,
+                    dataSourceId: primaryDataSource?.id,
+                  }}
+                  canEdit={canUpdate && canBuildFromSource}
+                  canAnalyze={
+                    canUpdate &&
+                    (dashboard.status === "ANALYZING" || analysisAvailable)
+                  }
+                  canDelete={canDelete}
+                />
+              ) : null}
+            </div>
+          }
         />
         <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 border-t pt-3 text-xs text-muted-foreground">
           <span className="inline-flex items-center gap-1.5">
@@ -221,8 +324,12 @@ export default async function DashboardDetailPage({
             Data ready
           </span>
           <span>Updated {formatDate(dashboard.updatedAt)}</span>
-          <span className="truncate">{primaryDataSource?.name || "No data source"}</span>
-          <span className="hidden sm:inline">Use filters or Ask Copilot to refine the view</span>
+          <span className="truncate">
+            {primaryDataSource?.name || "No data source"}
+          </span>
+          <span className="hidden sm:inline">
+            Use filters or Ask Copilot to refine the view
+          </span>
         </div>
       </div>
       {dashboard.status === "ANALYZING" ? (
@@ -335,8 +442,16 @@ export default async function DashboardDetailPage({
             widgets={renderedWidgets}
             canReorder={hasRole(context.role, "DASHBOARD_DESIGNER")}
           />
-          {insights.success && insights.data.insights.length ? (
-            <InsightHighlights insights={insights.data.insights} />
+          {latestGeneration ||
+          displayedInsights.length ||
+          insightHistory.length ? (
+            <InsightHighlights
+              dashboardId={dashboard.id}
+              insights={displayedInsights}
+              acknowledgedInsights={acknowledgedCurrentInsights}
+              initialHistory={insightHistory}
+              hasFilteredAnalysis={Boolean(latestGeneration)}
+            />
           ) : null}
         </section>
       ) : null}

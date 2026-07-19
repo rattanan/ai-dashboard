@@ -11,6 +11,10 @@ import {
   dashboardObjectiveSchema,
   widgetConfigSchema,
 } from "@/schemas/data-source";
+import {
+  acknowledgeInsightSchema,
+  filteredInsightAnalysisSchema,
+} from "@/schemas/dashboard-insights";
 
 describe("application schemas", () => {
   it("accepts a strong registration", () => {
@@ -57,6 +61,37 @@ describe("application schemas", () => {
   });
   it("versions widget JSON", () => {
     expect(widgetConfigSchema.parse({ version: 1 }).visualization).toEqual({});
+  });
+  it("validates filtered insight analysis and acknowledgement payloads", () => {
+    const dashboardId = "cmrq85aey025hin17oq44zo4k";
+    expect(
+      filteredInsightAnalysisSchema.safeParse({
+        dashboardId,
+        filters: { region: ["North"], "period:from": ["2026-07-01"] },
+      }).success,
+    ).toBe(true);
+    expect(
+      acknowledgeInsightSchema.safeParse({
+        dashboardId,
+        insight: {
+          title: "Late orders",
+          statement: "Three late orders need review.",
+          confidence: 0.9,
+          caveats: [],
+        },
+      }).success,
+    ).toBe(true);
+    expect(
+      acknowledgeInsightSchema.safeParse({
+        dashboardId,
+        insight: {
+          title: "Invalid confidence",
+          statement: "This should fail validation.",
+          confidence: 1.1,
+          caveats: [],
+        },
+      }).success,
+    ).toBe(false);
   });
   it("parses Phase 1 limits and environment booleans safely", () => {
     const result = envSchema.parse({

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import {
   Area,
   AreaChart,
@@ -60,10 +60,46 @@ import {
 import { reorderDashboardWidgetAction } from "@/features/analysis/actions";
 
 const PALETTES = {
-  BLUE: ["#2563eb", "#0ea5e9", "#14b8a6", "#8b5cf6", "#f59e0b", "#f43f5e", "#64748b", "#06b6d4"],
-  EMERALD: ["#059669", "#14b8a6", "#0ea5e9", "#84cc16", "#f59e0b", "#8b5cf6", "#64748b", "#22c55e"],
-  AMBER: ["#f59e0b", "#f97316", "#ef4444", "#8b5cf6", "#0ea5e9", "#14b8a6", "#64748b", "#eab308"],
-  SLATE: ["#334155", "#2563eb", "#0ea5e9", "#14b8a6", "#8b5cf6", "#f59e0b", "#f43f5e", "#64748b"],
+  BLUE: [
+    "#2563eb",
+    "#0ea5e9",
+    "#14b8a6",
+    "#8b5cf6",
+    "#f59e0b",
+    "#f43f5e",
+    "#64748b",
+    "#06b6d4",
+  ],
+  EMERALD: [
+    "#059669",
+    "#14b8a6",
+    "#0ea5e9",
+    "#84cc16",
+    "#f59e0b",
+    "#8b5cf6",
+    "#64748b",
+    "#22c55e",
+  ],
+  AMBER: [
+    "#f59e0b",
+    "#f97316",
+    "#ef4444",
+    "#8b5cf6",
+    "#0ea5e9",
+    "#14b8a6",
+    "#64748b",
+    "#eab308",
+  ],
+  SLATE: [
+    "#334155",
+    "#2563eb",
+    "#0ea5e9",
+    "#14b8a6",
+    "#8b5cf6",
+    "#f59e0b",
+    "#f43f5e",
+    "#64748b",
+  ],
 } as const;
 
 type FilterState = Record<string, string[]>;
@@ -180,7 +216,13 @@ export function prepareReorderRiskRows(
     );
     if (!category || /^[\p{P}\p{S}\s]+$/u.test(category) || shortfall === 0)
       return [];
-    return [{ ...row, [categoryField]: category, [REORDER_SHORTFALL_FIELD]: shortfall }];
+    return [
+      {
+        ...row,
+        [categoryField]: category,
+        [REORDER_SHORTFALL_FIELD]: shortfall,
+      },
+    ];
   });
 }
 
@@ -288,12 +330,22 @@ export function DashboardRenderer({
   canReorder: boolean;
 }) {
   const [filters, setFilters] = useState<FilterState>({});
+  const filtersInitialized = useRef(false);
   const definitions = useMemo(() => uniqueFilters(widgets), [widgets]);
   useEffect(() => {
+    if (!filtersInitialized.current) {
+      filtersInitialized.current = true;
+      return;
+    }
+    window.dispatchEvent(
+      new CustomEvent("dashboard:filters-changed", { detail: filters }),
+    );
+  }, [filters]);
+  useEffect(() => {
     const applyCopilotFilters = (event: Event) => {
-      const suggestions = (event as CustomEvent<
-        Array<{ value: string; datePreset?: string }>
-      >).detail;
+      const suggestions = (
+        event as CustomEvent<Array<{ value: string; datePreset?: string }>>
+      ).detail;
       if (!suggestions?.length) return;
       setFilters((current) => {
         const next = { ...current };
@@ -324,7 +376,10 @@ export function DashboardRenderer({
     };
     window.addEventListener("dashboard:copilot-filters", applyCopilotFilters);
     return () =>
-      window.removeEventListener("dashboard:copilot-filters", applyCopilotFilters);
+      window.removeEventListener(
+        "dashboard:copilot-filters",
+        applyCopilotFilters,
+      );
   }, [definitions, widgets]);
   if (!widgets.length)
     return (
@@ -528,7 +583,9 @@ function WidgetCard({
         ? "table"
         : "chart";
   return (
-    <Card className={`dashboard-card dashboard-card-${visualKind} flex h-full min-h-[calc(var(--widget-height)*2rem)] flex-col overflow-visible`}>
+    <Card
+      className={`dashboard-card dashboard-card-${visualKind} flex h-full min-h-[calc(var(--widget-height)*2rem)] flex-col overflow-visible`}
+    >
       <CardHeader className="flex-row items-start justify-between gap-3 pb-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -933,22 +990,13 @@ function CartesianWidget({
   const isReorderRisk =
     kind === "horizontal-bar" && Boolean(stockField && reorderField);
   const sourceRows = isReorderRisk
-    ? prepareReorderRiskRows(
-        rows,
-        categoryField,
-        stockField!,
-        reorderField!,
-      )
+    ? prepareReorderRiskRows(rows, categoryField, stockField!, reorderField!)
     : rows;
   const renderedMeasureFields = isReorderRisk
     ? [REORDER_SHORTFALL_FIELD]
     : measureFields;
   const chartRows = ["bar", "horizontal-bar", "stacked-bar"].includes(kind)
-    ? aggregateCategoricalRows(
-        sourceRows,
-        categoryField,
-        renderedMeasureFields,
-      )
+    ? aggregateCategoricalRows(sourceRows, categoryField, renderedMeasureFields)
         .filter((row) =>
           renderedMeasureFields.some((measure) => numeric(row[measure]) !== 0),
         )
@@ -1616,25 +1664,30 @@ function DataTable({
   emptyMessage: string;
 }) {
   const [search, setSearch] = useState("");
-  const [sort, setSort] = useState<{ column: string; descending: boolean } | null>(
-    null,
-  );
+  const [sort, setSort] = useState<{
+    column: string;
+    descending: boolean;
+  } | null>(null);
   const columns = Object.keys(rows[0] ?? {});
   const visibleRows = rows
-    .filter((row) =>
-      !search ||
-      Object.values(row).some((value) =>
-        String(value ?? "").toLowerCase().includes(search.toLowerCase()),
-      ),
+    .filter(
+      (row) =>
+        !search ||
+        Object.values(row).some((value) =>
+          String(value ?? "")
+            .toLowerCase()
+            .includes(search.toLowerCase()),
+        ),
     )
     .sort((left, right) => {
       if (!sort) return 0;
       const leftValue = String(left[sort.column] ?? "");
       const rightValue = String(right[sort.column] ?? "");
       const numericDifference = Number(leftValue) - Number(rightValue);
-      const compared = Number.isFinite(numericDifference) && leftValue && rightValue
-        ? numericDifference
-        : leftValue.localeCompare(rightValue, undefined, { numeric: true });
+      const compared =
+        Number.isFinite(numericDifference) && leftValue && rightValue
+          ? numericDifference
+          : leftValue.localeCompare(rightValue, undefined, { numeric: true });
       return sort.descending ? -compared : compared;
     })
     .slice(0, 10);
@@ -1643,44 +1696,81 @@ function DataTable({
     <div className="overflow-hidden rounded-xl border bg-white/60">
       <div className="flex items-center justify-between gap-3 border-b bg-slate-50/80 px-3 py-2.5">
         <label className="relative min-w-0 flex-1">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" size={15} />
+          <Search
+            className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
+            size={15}
+          />
           <span className="sr-only">Search table</span>
-          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search rows…" className="min-h-9 w-full rounded-lg border bg-white pl-8 pr-3 text-xs outline-none focus-visible:ring-2 focus-visible:ring-primary" />
+          <input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search rows…"
+            className="min-h-9 w-full rounded-lg border bg-white pl-8 pr-3 text-xs outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          />
         </label>
-        <span className="shrink-0 text-xs text-muted-foreground">{visibleRows.length} of {rows.length}</span>
+        <span className="shrink-0 text-xs text-muted-foreground">
+          {visibleRows.length} of {rows.length}
+        </span>
       </div>
       <div className="max-h-80 overflow-auto">
-      <table className="w-full min-w-[640px] text-left text-sm">
-        <thead className="sticky top-0 bg-slate-50">
-          <tr>
-            {columns.map((column) => (
-              <th
-                key={column}
-                scope="col"
-                className="px-3 py-2.5 font-semibold"
-              >
-                <button type="button" className="inline-flex items-center gap-1 capitalize hover:text-primary" onClick={() => setSort((current) => current?.column === column ? { column, descending: !current.descending } : { column, descending: false })}>
-                  {column.replaceAll("_", " ")}
-                  <span aria-hidden="true" className="text-[10px] text-muted-foreground">{sort?.column === column ? (sort.descending ? "↓" : "↑") : "↕"}</span>
-                </button>
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {visibleRows.map((row, index) => (
-            <tr key={index} className="border-t transition-colors hover:bg-blue-50/50">
+        <table className="w-full min-w-[640px] text-left text-sm">
+          <thead className="sticky top-0 bg-slate-50">
+            <tr>
               {columns.map((column) => (
-                <td key={column} className="px-3 py-2.5 text-slate-700">
-                  {String(row[column] ?? "—")}
-                </td>
+                <th
+                  key={column}
+                  scope="col"
+                  className="px-3 py-2.5 font-semibold"
+                >
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 capitalize hover:text-primary"
+                    onClick={() =>
+                      setSort((current) =>
+                        current?.column === column
+                          ? { column, descending: !current.descending }
+                          : { column, descending: false },
+                      )
+                    }
+                  >
+                    {column.replaceAll("_", " ")}
+                    <span
+                      aria-hidden="true"
+                      className="text-[10px] text-muted-foreground"
+                    >
+                      {sort?.column === column
+                        ? sort.descending
+                          ? "↓"
+                          : "↑"
+                        : "↕"}
+                    </span>
+                  </button>
+                </th>
               ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {visibleRows.map((row, index) => (
+              <tr
+                key={index}
+                className="border-t transition-colors hover:bg-blue-50/50"
+              >
+                {columns.map((column) => (
+                  <td key={column} className="px-3 py-2.5 text-slate-700">
+                    {String(row[column] ?? "—")}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
-      {rows.length > 10 ? <p className="border-t px-3 py-2 text-xs text-muted-foreground">Showing the 10 most relevant rows. Export CSV for the full validated result.</p> : null}
+      {rows.length > 10 ? (
+        <p className="border-t px-3 py-2 text-xs text-muted-foreground">
+          Showing the 10 most relevant rows. Export CSV for the full validated
+          result.
+        </p>
+      ) : null}
     </div>
   );
 }
