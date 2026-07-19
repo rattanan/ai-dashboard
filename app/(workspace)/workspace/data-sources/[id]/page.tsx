@@ -15,6 +15,7 @@ import {
 import { PageHeader } from "@/components/ui/page-header";
 import { ServerOperationButton } from "@/components/wizard/server-operation-button";
 import { DeleteDataSourceDialog } from "@/components/data-sources/delete-data-source-dialog";
+import { hasPermission } from "@/server/auth/permissions";
 
 export default async function DataSourceDetailPage({
   params,
@@ -25,6 +26,8 @@ export default async function DataSourceDetailPage({
   const context = await requireAuthorization();
   const source = await dataSourceRepository.find(context, id);
   if (!source) notFound();
+  const canManage = await hasPermission(context, "datasource.update");
+  const canDelete = await hasPermission(context, "datasource.delete");
   const tableCount = source.schemas.reduce(
     (sum, schema) => sum + schema.tables.length,
     0,
@@ -44,30 +47,32 @@ export default async function DataSourceDetailPage({
       />
       <div className="grid gap-5 lg:grid-cols-[1fr_340px]">
         <div className="space-y-5">
-          <Card>
-            <CardHeader>
-              <CardTitle>Connection</CardTitle>
-              <CardDescription>
-                Sanitized server-side configuration.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-4 sm:grid-cols-2">
-              <Info label="Host" value={source.host || "—"} />
-              <Info label="Port" value={source.port?.toString() || "—"} />
-              <Info label="Database" value={source.databaseName || "—"} />
-              <Info label="Username" value={source.username || "—"} />
-              <Info
-                label="TLS"
-                value={source.sslEnabled ? "Enabled" : "Disabled"}
-              />
-              <Info
-                label="Credential"
-                value={
-                  source.credential ? "Encrypted and stored" : "Not stored"
-                }
-              />
-            </CardContent>
-          </Card>
+          {canManage ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Connection</CardTitle>
+                <CardDescription>
+                  Sanitized server-side configuration.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-4 sm:grid-cols-2">
+                <Info label="Host" value={source.host || "—"} />
+                <Info label="Port" value={source.port?.toString() || "—"} />
+                <Info label="Database" value={source.databaseName || "—"} />
+                <Info label="Username" value={source.username || "—"} />
+                <Info
+                  label="TLS"
+                  value={source.sslEnabled ? "Enabled" : "Disabled"}
+                />
+                <Info
+                  label="Credential"
+                  value={
+                    source.credential ? "Encrypted and stored" : "Not stored"
+                  }
+                />
+              </CardContent>
+            </Card>
+          ) : null}
           <Card>
             <CardHeader>
               <CardTitle>Discovered metadata</CardTitle>
@@ -158,21 +163,24 @@ export default async function DataSourceDetailPage({
               />
             </CardContent>
           </Card>
-          <Card className="border-red-200">
-            <CardHeader>
-              <CardTitle className="text-destructive">Danger zone</CardTitle>
-              <CardDescription>
-                Permanently remove this connection and all discovered metadata.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <DeleteDataSourceDialog
-                dataSourceId={source.id}
-                dataSourceName={source.name}
-                linkedDashboards={source.dashboards.length}
-              />
-            </CardContent>
-          </Card>
+          {canDelete ? (
+            <Card className="border-red-200">
+              <CardHeader>
+                <CardTitle className="text-destructive">Danger zone</CardTitle>
+                <CardDescription>
+                  Permanently remove this connection and all discovered
+                  metadata.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <DeleteDataSourceDialog
+                  dataSourceId={source.id}
+                  dataSourceName={source.name}
+                  linkedDashboards={source.dashboards.length}
+                />
+              </CardContent>
+            </Card>
+          ) : null}
         </aside>
       </div>
     </div>

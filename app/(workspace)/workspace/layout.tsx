@@ -5,6 +5,7 @@ import {
 } from "@/server/auth/authorization";
 import { db } from "@/server/db";
 import { WorkspaceShell } from "@/components/layout/workspace-shell";
+import { getPermissionKeys } from "@/server/auth/permissions";
 
 export default async function WorkspaceLayout({
   children,
@@ -18,12 +19,18 @@ export default async function WorkspaceLayout({
     where: { id: context.workspaceId },
     include: { organization: true },
   });
+  const permissions = await getPermissionKeys(context);
   return (
     <WorkspaceShell
       user={user}
       workspace={{
         name: workspace.name,
         organizationName: workspace.organization.name,
+      }}
+      navigation={{
+        administration:
+          permissions.has("user.create") || permissions.has("audit.view"),
+        excel: permissions.has("excel.upload"),
       }}
     >
       {children}

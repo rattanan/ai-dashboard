@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
-import { RegisterForm } from "@/components/auth/register-form";
 import {
   Card,
   CardContent,
@@ -11,17 +10,26 @@ import {
 
 export const metadata = { title: "Create account" };
 export default async function RegisterPage() {
-  if ((await auth())?.user) redirect("/workspace");
+  if ((await auth())?.user?.id) redirect("/workspace");
   return (
     <Card>
       <CardHeader className="pb-5">
-        <CardTitle className="text-2xl">Create your account</CardTitle>
+        <CardTitle className="text-2xl">Registration is disabled</CardTitle>
         <CardDescription>
-          Set up a secure AI Dashboard workspace for your team.
+          AI Dashboard uses administrator-managed enterprise accounts.
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <RegisterForm />
+        <p className="text-sm leading-6 text-muted-foreground">
+          Contact your system administrator to request access. If you already
+          have an account, use the sign-in page.
+        </p>
+        <a
+          href="/login"
+          className="mt-5 inline-flex min-h-11 items-center font-semibold text-primary hover:underline"
+        >
+          Return to sign in
+        </a>
       </CardContent>
     </Card>
   );

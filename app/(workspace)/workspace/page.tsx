@@ -20,13 +20,14 @@ import { PageHeader } from "@/components/ui/page-header";
 
 export default async function WorkspacePage() {
   const context = await requireAuthorization();
-  const [workspace, dataSources, dashboards] = await Promise.all([
+  const [workspace, dataSources, dashboards, analyses] = await Promise.all([
     db.workspace.findUniqueOrThrow({
       where: { id: context.workspaceId },
       include: { organization: true },
     }),
     db.dataSource.count({ where: { workspaceId: context.workspaceId } }),
     db.dashboard.count({ where: { workspaceId: context.workspaceId } }),
+    db.analysisJob.count({ where: { workspaceId: context.workspaceId } }),
   ]);
   return (
     <div className="space-y-8">
@@ -53,8 +54,8 @@ export default async function WorkspacePage() {
         <Metric
           icon={<Sparkles />}
           label="AI analyses"
-          value={0}
-          note="Phase 0 placeholder"
+          value={analyses}
+          note="Persistent governed jobs"
         />
       </div>
       {dataSources === 0 ? (

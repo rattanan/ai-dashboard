@@ -7,10 +7,12 @@ export function WorkspaceShell({
   children,
   workspace,
   user,
+  navigation,
 }: {
   children: React.ReactNode;
   workspace: { name: string; organizationName: string };
   user: { name?: string | null; email?: string | null };
+  navigation: { administration: boolean; excel: boolean };
 }) {
   const initials = (user.name || user.email || "U")
     .split(/\s|@/)
@@ -40,7 +42,7 @@ export function WorkspaceShell({
               {workspace.name}
             </p>
           </div>
-          <WorkspaceNav />
+          <WorkspaceNav {...navigation} />
         </div>
       </aside>
       <div className="lg:col-start-2">
@@ -56,7 +58,7 @@ export function WorkspaceShell({
               <p className="px-3 pb-3 text-sm font-semibold">
                 {workspace.name}
               </p>
-              <WorkspaceNav mobile />
+              <WorkspaceNav mobile {...navigation} />
             </div>
           </details>
           <div className="hidden lg:block">

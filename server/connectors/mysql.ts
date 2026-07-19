@@ -81,6 +81,20 @@ function connectorFailure(error: unknown, operation: string) {
   });
 }
 
+function isTransientConnectionError(error: unknown) {
+  const code = String(getSafeDiagnostics(error).driverCode ?? "UNKNOWN");
+  return new Set([
+    "ETIMEDOUT",
+    "ECONNRESET",
+    "EPIPE",
+    "PROTOCOL_CONNECTION_LOST",
+  ]).has(code);
+}
+
+function wait(delayMs: number) {
+  return new Promise((resolve) => setTimeout(resolve, delayMs));
+}
+
 function quoteIdentifier(value: string) {
   return `\`${value.replaceAll("`", "``")}\``;
 }
@@ -123,7 +137,7 @@ export class MySqlConnector implements DataConnector {
       user: this.configuration.username,
       password: this.configuration.password,
       ssl: this.configuration.sslEnabled ? {} : undefined,
-      connectTimeout: 8_000,
+      connectTimeout: 15_000,
       multipleStatements: false,
       rowsAsArray: false,
     });
@@ -272,17 +286,38 @@ export class MySqlConnector implements DataConnector {
 
   async executeReadOnlyQuery(
     sql: string,
+    options?: { timeoutMs?: number },
   ): Promise<AppResult<Record<string, unknown>[]>> {
     const guarded = validateReadOnlySql(sql);
     if (!guarded.ok) return guarded;
-    try {
-      const [rows] = await (
-        await this.getConnection()
-      ).query<RowDataPacket[]>({ sql: guarded.data.sql, timeout: 10_000 });
-      return success(rows as Record<string, unknown>[]);
-    } catch (error) {
-      return connectorFailure(error, "executeReadOnlyQuery");
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const [rows] = await (
+          await this.getConnection()
+        ).query<RowDataPacket[]>({
+          sql: guarded.data.sql,
+          timeout: options?.timeoutMs ?? 10_000,
+        });
+        return success(rows as Record<string, unknown>[]);
+      } catch (error) {
+        if (attempt === 0 && isTransientConnectionError(error)) {
+          this.connection?.destroy();
+          this.connection = undefined;
+          logger.warn("Retrying transient MySQL connection failure", {
+            operation: "executeReadOnlyQuery",
+            diagnostics: getSafeDiagnostics(error),
+            attempt: attempt + 1,
+          });
+          await wait(250);
+          continue;
+        }
+        return connectorFailure(error, "executeReadOnlyQuery");
+      }
     }
+    return failure(
+      "CONNECTION_FAILED",
+      "The MySQL query could not be completed.",
+    );
   }
 
   async close() {

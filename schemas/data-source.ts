@@ -72,3 +72,11 @@ export const deleteDataSourceSchema = z.object({
   dataSourceId: z.string().min(1),
   confirmationName: z.string().trim().min(1),
 });
+
+export const dashboardMutationSchema = z.object({
+  dashboardId: z.string().min(1),
+});
+
+export const deleteDashboardSchema = dashboardMutationSchema.extend({
+  confirmationName: z.string().trim().min(1),
+});

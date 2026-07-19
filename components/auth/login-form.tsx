@@ -13,15 +13,30 @@ export function LoginForm() {
   const [show, setShow] = useState(false);
   return (
     <form action={action} className="space-y-5">
-      <Field label="Email address" htmlFor="email" required>
+      <Field label="Email or username" htmlFor="identifier" required>
         <Input
-          id="email"
-          name="email"
-          type="email"
-          autoComplete="email"
+          id="identifier"
+          name="identifier"
+          autoComplete="username"
           required
         />
       </Field>
+      <div className="flex items-center justify-between gap-4 text-sm">
+        <label className="flex min-h-11 cursor-pointer items-center gap-2">
+          <input
+            name="rememberMe"
+            type="checkbox"
+            className="size-4 rounded border-slate-300 accent-primary"
+          />
+          Remember me
+        </label>
+        <Link
+          href="/forgot-password"
+          className="font-medium text-primary hover:underline"
+        >
+          Forgot password?
+        </Link>
+      </div>
       <Field label="Password" htmlFor="password" required>
         <div className="relative">
           <Input
@@ -52,13 +67,7 @@ export function LoginForm() {
         {pending ? "Signing in…" : "Sign in"}
       </Button>
       <p className="text-center text-sm text-muted-foreground">
-        New to AI Dashboard?{" "}
-        <Link
-          href="/register"
-          className="font-semibold text-primary hover:underline"
-        >
-          Create an account
-        </Link>
+        Accounts are provisioned by your system administrator.
       </p>
     </form>
   );

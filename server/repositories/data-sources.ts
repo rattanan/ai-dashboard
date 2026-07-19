@@ -1,10 +1,15 @@
 import type { AuthorizationContext } from "@/server/auth/authorization";
 import { db } from "@/server/db";
+import { hasPermission } from "@/server/auth/permissions";
 
 export const dataSourceRepository = {
-  list(context: AuthorizationContext) {
+  async list(context: AuthorizationContext) {
+    const manageAll = await hasPermission(context, "datasource.update");
     return db.dataSource.findMany({
-      where: { workspaceId: context.workspaceId },
+      where: {
+        workspaceId: context.workspaceId,
+        ...(manageAll ? {} : { access: { some: { userId: context.userId } } }),
+      },
       include: {
         credential: { select: { id: true } },
         file: true,
@@ -13,9 +18,14 @@ export const dataSourceRepository = {
       orderBy: { updatedAt: "desc" },
     });
   },
-  find(context: AuthorizationContext, id: string) {
+  async find(context: AuthorizationContext, id: string) {
+    const manageAll = await hasPermission(context, "datasource.update");
     return db.dataSource.findFirst({
-      where: { id, workspaceId: context.workspaceId },
+      where: {
+        id,
+        workspaceId: context.workspaceId,
+        ...(manageAll ? {} : { access: { some: { userId: context.userId } } }),
+      },
       include: {
         credential: true,
         file: true,
@@ -24,6 +34,10 @@ export const dataSourceRepository = {
           orderBy: { name: "asc" },
         },
         dashboards: { include: { dashboard: true } },
+        excelVersions: {
+          include: { sheets: { include: { columns: true } }, uploadedBy: true },
+          orderBy: { version: "desc" },
+        },
       },
     });
   },

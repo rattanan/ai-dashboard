@@ -36,6 +36,20 @@ describe.skipIf(!enabled)("MySQL integration", () => {
               item.fromTable === "orders" && item.toTable === "customers",
           ),
         ).toBe(true);
+      const query = await connector.executeReadOnlyQuery(
+        "SELECT COUNT(*) AS order_count FROM analytics_fixture.orders LIMIT 10",
+        { timeoutMs: 5_000 },
+      );
+      expect(query.ok).toBe(true);
+      if (query.ok)
+        expect(Number(query.data[0].order_count)).toBeGreaterThan(0);
+      expect(
+        (
+          await connector.executeReadOnlyQuery(
+            "DELETE FROM analytics_fixture.orders",
+          )
+        ).ok,
+      ).toBe(false);
     } finally {
       await connector.close();
     }

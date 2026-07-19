@@ -60,6 +60,7 @@ export interface DataConnector {
   ): Promise<AppResult<Record<string, unknown>[]>>;
   executeReadOnlyQuery(
     sql: string,
+    options?: { timeoutMs?: number },
   ): Promise<AppResult<Record<string, unknown>[]>>;
   close(): Promise<void>;
 }

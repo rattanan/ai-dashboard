@@ -13,6 +13,8 @@ export default defineConfig({
         "postgresql://test:test@127.0.0.1:5432/test",
       AUTH_SECRET: "test-auth-secret-with-at-least-32-characters",
       CREDENTIAL_ENCRYPTION_KEY: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+      AI_MODEL: "mock-analysis-model",
+      AI_BASE_URL: "http://mock-ai.test/v1",
     },
   },
 });

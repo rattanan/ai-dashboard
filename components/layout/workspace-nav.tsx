@@ -2,7 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Database, LayoutDashboard, Settings, Sparkles } from "lucide-react";
+import {
+  Database,
+  FileSpreadsheet,
+  LayoutDashboard,
+  Settings,
+  ShieldCheck,
+  Sparkles,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const items = [
@@ -12,14 +19,43 @@ const items = [
   { href: "/workspace/settings", label: "Settings", icon: Settings },
 ];
 
-export function WorkspaceNav({ mobile = false }: { mobile?: boolean }) {
+export function WorkspaceNav({
+  mobile = false,
+  administration = false,
+  excel = false,
+}: {
+  mobile?: boolean;
+  administration?: boolean;
+  excel?: boolean;
+}) {
   const pathname = usePathname();
+  const visibleItems = [
+    ...items,
+    ...(excel
+      ? [
+          {
+            href: "/workspace/excel",
+            label: "Excel uploads",
+            icon: FileSpreadsheet,
+          },
+        ]
+      : []),
+    ...(administration
+      ? [
+          {
+            href: "/workspace/admin/users",
+            label: "Administration",
+            icon: ShieldCheck,
+          },
+        ]
+      : []),
+  ];
   return (
     <nav
       aria-label="Workspace navigation"
       className={cn("space-y-1", mobile && "grid grid-cols-2 gap-2 space-y-0")}
     >
-      {items.map(({ href, label, icon: Icon, exact }) => {
+      {visibleItems.map(({ href, label, icon: Icon, exact }) => {
         const active = exact ? pathname === href : pathname.startsWith(href);
         return (
           <Link

@@ -143,11 +143,13 @@ export function SetupWizard({
   initialType,
   source,
   dashboard,
+  editMode = false,
 }: {
   initialStep: number;
   initialType?: SourceType;
   source?: WizardSource;
   dashboard?: WizardDashboard;
+  editMode?: boolean;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -775,7 +777,13 @@ export function SetupWizard({
           {message ? (
             <p className="mt-3 text-sm text-destructive">{message}</p>
           ) : null}
-          <Footer onBack={() => go(5)} />
+          <Footer
+            onBack={() =>
+              editMode && dashboard
+                ? router.push(`/workspace/dashboards/${dashboard.id}`)
+                : go(5)
+            }
+          />
         </StepCard>
       ) : null}
       {step === 7 && dashboard ? (
@@ -881,9 +889,9 @@ export function SetupWizard({
             />
           </div>
           <div className="mt-6 rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
-            Starting analysis saves an immutable version and changes the
-            dashboard status to <strong>ANALYZING</strong>. It does not call an
-            AI provider in Phase 0.
+            Starting analysis creates a persistent job and changes the dashboard
+            status to <strong>ANALYZING</strong>. Each bounded stage is saved so
+            failed work can be reviewed and safely retried.
           </div>
           <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-between">
             <Button variant="outline" onClick={() => go(7)}>

@@ -9,6 +9,7 @@ const configuration: AIProviderConfiguration = {
   apiKey: "test-provider-key",
   model: "test-model",
   timeoutMs: 2_000,
+  inactivityTimeoutMs: 500,
   maxRetries: 0,
   temperature: 0.1,
   supportsJsonSchema: true,
@@ -30,10 +31,23 @@ function request() {
   };
 }
 
+function streamingResponse(parts: string[]) {
+  const encoder = new TextEncoder();
+  return new Response(
+    new ReadableStream({
+      start(controller) {
+        for (const part of parts) controller.enqueue(encoder.encode(part));
+        controller.close();
+      },
+    }),
+    { headers: { "content-type": "text/event-stream" } },
+  );
+}
+
 afterEach(() => vi.unstubAllGlobals());
 
 describe("OpenAI-compatible provider", () => {
-  it("requests JSON schema output and validates the response", async () => {
+  it("falls back to a non-streaming compatible response and validates it", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       Response.json({
         choices: [
@@ -65,14 +79,112 @@ describe("OpenAI-compatible provider", () => {
     expect(JSON.parse(String(init.body)).response_format.type).toBe(
       "json_schema",
     );
+    expect(JSON.parse(String(init.body)).stream).toBe(true);
+  });
+
+  it("assembles split SSE chunks and captures final usage", async () => {
+    const progress = vi.fn();
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          streamingResponse([
+            'data: {"choices":[{"delta":{"content":"{\\"summary\\":"}}]}\n\n',
+            'data: {"choices":[{"delta":{"content":"\\"Grounded\\",\\"confidence\\":0.9}"}}]}\n\n',
+            'data: {"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}\n\n',
+            "data: [DONE]\n\n",
+          ]),
+        ),
+    );
+
+    const result = await new OpenAICompatibleProvider(
+      configuration,
+    ).generateStructuredOutput({ ...request(), onProgress: progress });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.data).toEqual({ summary: "Grounded", confidence: 0.9 });
+    expect(result.data.usage?.totalTokens).toBe(15);
+    expect(progress).toHaveBeenCalled();
+  });
+
+  it("rejects malformed SSE events", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          streamingResponse(["data: not-json\n\n", "data: [DONE]\n\n"]),
+        ),
+    );
+    const result = await new OpenAICompatibleProvider(
+      configuration,
+    ).generateStructuredOutput(request());
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe("AI_INVALID_RESPONSE");
+  });
+
+  it("reports a timeout before the first provider chunk", async () => {
+    const fetchMock = vi.fn(
+      (_: string, init?: RequestInit) =>
+        new Promise((_, reject) => {
+          init?.signal?.addEventListener("abort", () =>
+            reject(new DOMException("aborted", "AbortError")),
+          );
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await new OpenAICompatibleProvider({
+      ...configuration,
+      timeoutMs: 20,
+      inactivityTimeoutMs: 10,
+    }).generateStructuredOutput(request());
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe("AI_TIMEOUT");
+    expect(result.error.message).toContain("did not begin responding");
+  });
+
+  it("reports an inactivity timeout after a provider stream stalls", async () => {
+    const encoder = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(
+          encoder.encode(
+            'data: {"choices":[{"delta":{"content":"{\\"summary\\":"}}]}\n\n',
+          ),
+        );
+      },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(body, {
+          headers: { "content-type": "text/event-stream" },
+        }),
+      ),
+    );
+    const result = await new OpenAICompatibleProvider({
+      ...configuration,
+      timeoutMs: 100,
+      inactivityTimeoutMs: 10,
+    }).generateStructuredOutput(request());
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe("AI_TIMEOUT");
+    expect(result.error.message).toContain("stream stalled");
   });
 
   it("rejects invalid structured output without extracting text", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(
-        Response.json({ choices: [{ message: { content: "Result: {}" } }] }),
-      ),
+      vi
+        .fn()
+        .mockResolvedValue(
+          Response.json({ choices: [{ message: { content: "Result: {}" } }] }),
+        ),
     );
     const result = await new OpenAICompatibleProvider(
       configuration,
@@ -107,6 +219,35 @@ describe("OpenAI-compatible provider", () => {
     }).generateStructuredOutput(request());
     expect(result.ok).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("explains when a provider rejects a large JSON Schema", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        Response.json(
+          [
+            {
+              error: {
+                code: 400,
+                status: "INVALID_ARGUMENT",
+                message: "The specified schema produces too many states.",
+              },
+            },
+          ],
+          { status: 400 },
+        ),
+      ),
+    );
+    const result = await new OpenAICompatibleProvider(
+      configuration,
+    ).generateStructuredOutput(request());
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.message).toContain("AI_SUPPORTS_JSON_SCHEMA=false");
+    expect(result.error.diagnostics?.providerErrorStatus).toBe(
+      "INVALID_ARGUMENT",
+    );
   });
 
   it("reports missing model configuration without a network request", async () => {
@@ -144,5 +285,46 @@ describe("OpenAI-compatible provider", () => {
       String((fetchMock.mock.calls[0][1] as RequestInit).body),
     );
     expect(body.response_format).toEqual({ type: "json_object" });
+    expect(body.messages[0].content).toContain(
+      "It must satisfy this JSON Schema",
+    );
+  });
+
+  it("repairs invalid JSON-object output once using safe schema feedback", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({
+          choices: [{ message: { content: JSON.stringify({ summary: 42 }) } }],
+        }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  summary: "Repaired",
+                  confidence: 0.8,
+                }),
+              },
+            },
+          ],
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await new OpenAICompatibleProvider({
+      ...configuration,
+      supportsJsonSchema: false,
+      maxRetries: 0,
+    }).generateStructuredOutput(request());
+
+    expect(result.ok).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const repairedBody = JSON.parse(
+      String((fetchMock.mock.calls[1][1] as RequestInit).body),
+    );
+    expect(repairedBody.messages.at(-1).content).toContain("Validation issues");
   });
 });

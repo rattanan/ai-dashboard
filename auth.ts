@@ -1,8 +1,8 @@
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
-import { verify } from "@node-rs/argon2";
 import { db } from "@/server/db";
 import { loginSchema } from "@/schemas/auth";
+import { authenticateCredentials } from "@/server/services/login-security";
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   secret: process.env.AUTH_SECRET,
@@ -11,39 +11,85 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   pages: { signIn: "/login" },
   providers: [
     Credentials({
-      credentials: { email: {}, password: {} },
-      async authorize(raw) {
+      credentials: { identifier: {}, password: {}, rememberMe: {} },
+      async authorize(raw, request) {
         const parsed = loginSchema.safeParse(raw);
         if (!parsed.success) return null;
-        const user = await db.user.findUnique({
-          where: { email: parsed.data.email },
-        });
-        if (
-          !user?.passwordHash ||
-          !(await verify(user.passwordHash, parsed.data.password))
-        )
-          return null;
+        const authenticated = await authenticateCredentials(
+          parsed.data.identifier,
+          parsed.data.password,
+          request,
+        );
+        if (!authenticated) return null;
+        const { user, loginHistoryId } = authenticated;
         return {
           id: user.id,
           email: user.email,
           name: user.name,
           image: user.image,
+          sessionVersion: user.sessionVersion,
+          mustChangePassword: user.mustChangePassword,
+          rememberMe: parsed.data.rememberMe,
+          loginHistoryId,
         };
       },
     }),
   ],
   callbacks: {
-    jwt({ token, user }) {
-      if (user?.id) token.userId = user.id;
+    async jwt({ token, user }) {
+      if (user?.id) {
+        const loginUser = user as typeof user & {
+          sessionVersion: number;
+          mustChangePassword: boolean;
+          rememberMe: boolean;
+          loginHistoryId: string;
+        };
+        token.userId = user.id;
+        token.sessionVersion = loginUser.sessionVersion;
+        token.mustChangePassword = loginUser.mustChangePassword;
+        token.loginHistoryId = loginUser.loginHistoryId;
+        token.exp =
+          Math.floor(Date.now() / 1000) +
+          (loginUser.rememberMe ? 30 * 86400 : 8 * 3600);
+      } else if (token.userId) {
+        const current = await db.user.findUnique({
+          where: { id: String(token.userId) },
+          select: {
+            status: true,
+            deletedAt: true,
+            sessionVersion: true,
+            mustChangePassword: true,
+            lockedUntil: true,
+          },
+        });
+        token.invalid =
+          !current ||
+          current.deletedAt !== null ||
+          current.status === "DISABLED" ||
+          current.status === "LOCKED" ||
+          current.sessionVersion !== token.sessionVersion;
+        token.mustChangePassword = current?.mustChangePassword ?? false;
+      }
       return token;
     },
     session({ session, token }) {
-      if (session.user) session.user.id = String(token.userId ?? token.sub);
+      if (session.user) {
+        session.user.id = token.invalid
+          ? ""
+          : String(token.userId ?? token.sub);
+        session.user.mustChangePassword = Boolean(token.mustChangePassword);
+        session.user.loginHistoryId = token.loginHistoryId
+          ? String(token.loginHistoryId)
+          : undefined;
+      }
       return session;
     },
     authorized({ auth: session, request }) {
       const isWorkspace = request.nextUrl.pathname.startsWith("/workspace");
-      if (isWorkspace && !session?.user) return false;
+      const isPasswordChange = request.nextUrl.pathname === "/change-password";
+      if ((isWorkspace || isPasswordChange) && !session?.user?.id) return false;
+      if (isWorkspace && session?.user.mustChangePassword)
+        return Response.redirect(new URL("/change-password", request.nextUrl));
       return true;
     },
   },

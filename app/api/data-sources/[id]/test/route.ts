@@ -1,5 +1,8 @@
-import { OrganizationRole } from "@/generated/prisma/enums";
 import { requireAuthorization } from "@/server/auth/authorization";
+import {
+  requireDataSourceAccess,
+  requirePermission,
+} from "@/server/auth/permissions";
 import { testDataSource } from "@/server/services/data-source-service";
 import { failure } from "@/types/result";
 
@@ -8,8 +11,10 @@ export async function POST(
   context: { params: Promise<{ id: string }> },
 ) {
   try {
-    const authorization = await requireAuthorization(OrganizationRole.ADMIN);
+    const authorization = await requireAuthorization();
     const { id } = await context.params;
+    await requirePermission(authorization, "datasource.update");
+    await requireDataSourceAccess(authorization, id, "manage");
     const result = await testDataSource(authorization, id);
     return Response.json(result, {
       status: result.ok ? 200 : result.error.code === "NOT_FOUND" ? 404 : 422,

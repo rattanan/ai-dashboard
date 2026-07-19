@@ -6,6 +6,7 @@ import { requireUser } from "@/server/auth/authorization";
 import { db } from "@/server/db";
 import { slugify } from "@/lib/utils";
 import { failure, success, type AppResult } from "@/types/result";
+import { provisionOrganizationSystemRoles } from "@/server/services/system-role-service";
 
 export async function onboardingAction(
   _previous: AppResult<{ created: true }> | null,
@@ -35,6 +36,7 @@ export async function onboardingAction(
         createdById: user.id,
       },
     });
+    await provisionOrganizationSystemRoles(tx, organization.id, user.id);
     await tx.auditLog.create({
       data: {
         organizationId: organization.id,

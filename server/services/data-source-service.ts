@@ -19,7 +19,10 @@ function encryptionService() {
   );
 }
 
-async function connectorFor(context: AuthorizationContext, id: string) {
+export async function getDataSourceConnector(
+  context: AuthorizationContext,
+  id: string,
+) {
   const source = await dataSourceRepository.find(context, id);
   if (!source) return failure("NOT_FOUND", "Data source not found.");
   let password: string | undefined;
@@ -48,7 +51,7 @@ export async function testDataSource(
   context: AuthorizationContext,
   id: string,
 ) {
-  const resolved = await connectorFor(context, id);
+  const resolved = await getDataSourceConnector(context, id);
   if (!resolved.ok) return resolved;
   const { connector, source } = resolved.data;
   await db.dataSource.update({
@@ -91,7 +94,7 @@ export async function discoverDataSource(
   context: AuthorizationContext,
   id: string,
 ) {
-  const resolved = await connectorFor(context, id);
+  const resolved = await getDataSourceConnector(context, id);
   if (!resolved.ok) return resolved;
   const { connector, source } = resolved.data;
   if (source.type !== "MYSQL")
@@ -236,6 +239,16 @@ export async function createDatabaseDataSource(
         connectionOptions: input.connectionOptions as Prisma.InputJsonValue,
         createdById: context.userId,
         credential: { create: encrypted },
+        access: {
+          create: {
+            organizationId: context.organizationId,
+            userId: context.userId,
+            grantedById: context.userId,
+            canPreview: true,
+            canBuild: true,
+            canManage: true,
+          },
+        },
       },
     });
     await tx.auditLog.create({

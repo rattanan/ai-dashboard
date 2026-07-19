@@ -2,6 +2,7 @@ import "dotenv/config";
 import { hash } from "@node-rs/argon2";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../generated/prisma/client";
+import { PERMISSIONS, SYSTEM_ROLES } from "../server/auth/permission-catalog";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl)
@@ -11,23 +12,54 @@ const prisma = new PrismaClient({
 });
 
 async function main() {
-  const user = await prisma.user.upsert({
-    where: { email: "demo@ai-dashboard.local" },
-    update: {},
-    create: {
-      name: "Demo Owner",
-      email: "demo@ai-dashboard.local",
-      passwordHash: await hash("DemoPassword123!", {
-        algorithm: 2,
-        memoryCost: 19456,
-        timeCost: 2,
-      }),
-    },
-  });
+  const adminName = process.env.INITIAL_ADMIN_NAME;
+  const adminEmail = process.env.INITIAL_ADMIN_EMAIL?.toLowerCase();
+  const adminPassword = process.env.INITIAL_ADMIN_PASSWORD;
+  const adminUsername = process.env.INITIAL_ADMIN_USERNAME?.toLowerCase();
+  if (!adminName || !adminEmail || !adminPassword)
+    throw new Error(
+      "INITIAL_ADMIN_NAME, INITIAL_ADMIN_EMAIL, and INITIAL_ADMIN_PASSWORD are required to seed.",
+    );
+  const [adminByEmail, adminByUsername] = await Promise.all([
+    prisma.user.findUnique({ where: { email: adminEmail } }),
+    adminUsername
+      ? prisma.user.findUnique({ where: { username: adminUsername } })
+      : null,
+  ]);
+  if (adminByEmail && adminByUsername && adminByEmail.id !== adminByUsername.id)
+    throw new Error(
+      "INITIAL_ADMIN_EMAIL and INITIAL_ADMIN_USERNAME belong to different existing users.",
+    );
+  const existingAdmin = adminByEmail ?? adminByUsername;
+  const user = existingAdmin
+    ? await prisma.user.update({
+        where: { id: existingAdmin.id },
+        data: {
+          name: adminName,
+          email: adminEmail,
+          username: adminUsername,
+          status: "ACTIVE",
+          deletedAt: null,
+        },
+      })
+    : await prisma.user.create({
+        data: {
+          name: adminName,
+          email: adminEmail,
+          username: adminUsername,
+          status: "ACTIVE",
+          mustChangePassword: true,
+          passwordHash: await hash(adminPassword, {
+            algorithm: 2,
+            memoryCost: 19456,
+            timeCost: 2,
+          }),
+        },
+      });
   const organization = await prisma.organization.upsert({
-    where: { slug: "demo-organization" },
-    update: { name: "Demo Organization" },
-    create: { name: "Demo Organization", slug: "demo-organization" },
+    where: { slug: "initial-organization" },
+    update: { name: "Initial Organization" },
+    create: { name: "Initial Organization", slug: "initial-organization" },
   });
   await prisma.organizationMember.upsert({
     where: {
@@ -43,17 +75,167 @@ async function main() {
     where: {
       organizationId_slug: {
         organizationId: organization.id,
-        slug: "analytics",
+        slug: "main",
       },
     },
-    update: { name: "Analytics" },
+    update: { name: "Main Workspace" },
     create: {
       organizationId: organization.id,
-      name: "Analytics",
-      slug: "analytics",
+      name: "Main Workspace",
+      slug: "main",
       createdById: user.id,
     },
   });
+  for (const key of PERMISSIONS) {
+    await prisma.permission.upsert({
+      where: { key },
+      update: {},
+      create: { key },
+    });
+  }
+  const rolesByKey = new Map<string, string>();
+  for (const [systemKey, definition] of Object.entries(SYSTEM_ROLES)) {
+    const role = await prisma.role.upsert({
+      where: {
+        organizationId_systemKey: {
+          organizationId: organization.id,
+          systemKey,
+        },
+      },
+      update: { name: definition.name, description: definition.description },
+      create: {
+        organizationId: organization.id,
+        systemKey,
+        isSystem: true,
+        name: definition.name,
+        description: definition.description,
+      },
+    });
+    rolesByKey.set(systemKey, role.id);
+    const permissionRows = await prisma.permission.findMany({
+      where: { key: { in: [...definition.permissions] } },
+      select: { id: true },
+    });
+    await prisma.rolePermission.deleteMany({ where: { roleId: role.id } });
+    await prisma.rolePermission.createMany({
+      data: permissionRows.map((permission) => ({
+        roleId: role.id,
+        permissionId: permission.id,
+      })),
+    });
+    if (systemKey === "SYSTEM_ADMIN") {
+      await prisma.userRole.upsert({
+        where: {
+          organizationId_userId_roleId: {
+            organizationId: organization.id,
+            userId: user.id,
+            roleId: role.id,
+          },
+        },
+        update: {},
+        create: {
+          organizationId: organization.id,
+          userId: user.id,
+          roleId: role.id,
+        },
+      });
+      await prisma.aIAccessPolicy.upsert({
+        where: {
+          organizationId_userId: {
+            organizationId: organization.id,
+            userId: user.id,
+          },
+        },
+        update: { copilotEnabled: true },
+        create: {
+          organizationId: organization.id,
+          userId: user.id,
+          copilotEnabled: true,
+        },
+      });
+    }
+  }
+  if (
+    process.env.NODE_ENV !== "production" &&
+    process.env.SEED_DEVELOPMENT_TEST_USERS === "true"
+  ) {
+    const developmentPassword = process.env.DEVELOPMENT_TEST_USER_PASSWORD;
+    if (!developmentPassword || developmentPassword.length < 12)
+      throw new Error(
+        "DEVELOPMENT_TEST_USER_PASSWORD is required when SEED_DEVELOPMENT_TEST_USERS=true.",
+      );
+    const testUsers = [
+      ["DATA_SOURCE_MANAGER", "Development Data Manager", "datasource.manager"],
+      [
+        "DASHBOARD_BUILDER",
+        "Development Dashboard Builder",
+        "dashboard.builder",
+      ],
+      ["DASHBOARD_VIEWER", "Development Dashboard Viewer", "dashboard.viewer"],
+    ] as const;
+    for (const [systemKey, name, username] of testUsers) {
+      const roleId = rolesByKey.get(systemKey);
+      if (!roleId) continue;
+      const testUser = await prisma.user.upsert({
+        where: { email: `${username}@ai-dashboard.local` },
+        update: { status: "ACTIVE", deletedAt: null },
+        create: {
+          name,
+          username,
+          email: `${username}@ai-dashboard.local`,
+          status: "ACTIVE",
+          passwordHash: await hash(developmentPassword, {
+            algorithm: 2,
+            memoryCost: 19456,
+            timeCost: 2,
+          }),
+        },
+      });
+      await prisma.organizationMember.upsert({
+        where: {
+          organizationId_userId: {
+            organizationId: organization.id,
+            userId: testUser.id,
+          },
+        },
+        update: { role: "VIEWER" },
+        create: {
+          organizationId: organization.id,
+          userId: testUser.id,
+          role: "VIEWER",
+        },
+      });
+      await prisma.userRole.upsert({
+        where: {
+          organizationId_userId_roleId: {
+            organizationId: organization.id,
+            userId: testUser.id,
+            roleId,
+          },
+        },
+        update: {},
+        create: {
+          organizationId: organization.id,
+          userId: testUser.id,
+          roleId,
+        },
+      });
+      await prisma.aIAccessPolicy.upsert({
+        where: {
+          organizationId_userId: {
+            organizationId: organization.id,
+            userId: testUser.id,
+          },
+        },
+        update: { copilotEnabled: systemKey !== "DATA_SOURCE_MANAGER" },
+        create: {
+          organizationId: organization.id,
+          userId: testUser.id,
+          copilotEnabled: systemKey !== "DATA_SOURCE_MANAGER",
+        },
+      });
+    }
+  }
   let dataSource = await prisma.dataSource.findFirst({
     where: {
       workspaceId: workspace.id,
@@ -96,8 +278,499 @@ async function main() {
       },
     },
   });
+
+  let showcase = await prisma.dashboard.findFirst({
+    where: {
+      workspaceId: workspace.id,
+      name: "Visual Analytics Showcase",
+    },
+  });
+  showcase ??= await prisma.dashboard.create({
+    data: {
+      workspaceId: workspace.id,
+      createdById: user.id,
+      name: "Visual Analytics Showcase",
+      status: "GENERATED",
+      businessArea: "Inventory and Procurement",
+      businessObjective:
+        "Monitor purchasing spend, stock health, supplier performance, and order flow across warehouses.",
+      businessQuestions:
+        "Is procurement spend on target? Which categories and suppliers create risk? Where are purchase orders delayed?",
+      desiredKpis:
+        "Procurement spend, target achievement, stock health, purchase-order conversion, supplier performance",
+      targetUsers: "Operations leadership and procurement managers",
+      reportingPeriod: "Monthly",
+      importantFilters: "Date range, warehouse, item category",
+      layoutStyle: "EXECUTIVE_OVERVIEW",
+      visualStyle: "MODERN_ENTERPRISE",
+      visualTheme: "BLUE",
+      dataSources: { create: { dataSourceId: dataSource.id } },
+    },
+  });
+  await prisma.dashboard.update({
+    where: { id: showcase.id },
+    data: { status: "GENERATED" },
+  });
+  await prisma.dashboardVersion.upsert({
+    where: {
+      dashboardId_version: { dashboardId: showcase.id, version: 1 },
+    },
+    update: {},
+    create: {
+      dashboardId: showcase.id,
+      version: 1,
+      createdById: user.id,
+      snapshot: {
+        version: 1,
+        seeded: true,
+        purpose: "Rich dashboard renderer demonstration",
+      },
+    },
+  });
+  const dashboardFilters = [
+    {
+      id: "date_range",
+      label: "Date range",
+      control: "DATE_RANGE" as const,
+      field: "period",
+    },
+    {
+      id: "warehouse",
+      label: "Warehouse",
+      control: "SELECT" as const,
+      field: "warehouse",
+    },
+  ];
+  const sampleWidgets = [
+    {
+      type: "KPI" as const,
+      title: "Procurement spend",
+      definition: {
+        id: "procurement_spend",
+        type: "KPI",
+        title: "Procurement spend",
+        description: "Current spend with prior-period and target context.",
+        businessQuestion: "Is procurement spend within the approved target?",
+        visualizationReason:
+          "A target-aware KPI communicates the headline position and trend.",
+        priority: "HIGH",
+        queryDefinitionId: "sample-spend",
+        layout: { x: 0, y: 0, width: 3, height: 3 },
+        visualization: {
+          valueField: "spend",
+          previousValueField: "previous_spend",
+          targetField: "target",
+          xField: "period",
+          showLegend: false,
+          palette: "BLUE",
+        },
+        dataMapping: { dimensions: ["period"], measures: ["spend"] },
+        formatting: {
+          displayFormat: "CURRENCY",
+          decimals: 0,
+          currency: "THB",
+          compact: true,
+        },
+        filters: dashboardFilters,
+        interaction: { crossFilter: true, drillDown: true, export: true },
+        emptyStateMessage: "No procurement spend for this selection.",
+      },
+      rows: [
+        {
+          period: "2026-06-01",
+          warehouse: "Bangkok",
+          spend: 12500000,
+          previous_spend: 10800000,
+          target: 12000000,
+        },
+        {
+          period: "2026-05-01",
+          warehouse: "Bangkok",
+          spend: 10800000,
+          previous_spend: 9900000,
+          target: 12000000,
+        },
+        {
+          period: "2026-04-01",
+          warehouse: "Bangkok",
+          spend: 9900000,
+          previous_spend: 9400000,
+          target: 12000000,
+        },
+      ],
+    },
+    {
+      type: "GAUGE" as const,
+      title: "On-time delivery",
+      definition: {
+        id: "on_time_delivery",
+        type: "GAUGE",
+        title: "On-time delivery",
+        description: "Supplier deliveries received by the promised date.",
+        businessQuestion: "Are suppliers meeting the on-time delivery target?",
+        visualizationReason:
+          "A gauge is appropriate because a real 95% target exists.",
+        priority: "HIGH",
+        queryDefinitionId: "sample-delivery",
+        layout: { x: 3, y: 0, width: 3, height: 3 },
+        visualization: {
+          valueField: "rate",
+          targetField: "target",
+          showLegend: false,
+          palette: "EMERALD",
+        },
+        dataMapping: { dimensions: [], measures: ["rate", "target"] },
+        formatting: {
+          displayFormat: "PERCENTAGE",
+          decimals: 1,
+          compact: false,
+        },
+        interaction: { crossFilter: false, drillDown: true, export: true },
+        emptyStateMessage: "No delivery performance data.",
+      },
+      rows: [{ rate: 92.4, target: 95 }],
+    },
+    {
+      type: "LINE_CHART" as const,
+      title: "Monthly spend trend",
+      definition: {
+        id: "monthly_spend_trend",
+        type: "LINE_CHART",
+        title: "Monthly spend trend",
+        description: "Procurement spend across the last six months.",
+        businessQuestion: "How is procurement spend changing over time?",
+        visualizationReason:
+          "Ordered monthly observations require trend analysis.",
+        priority: "PRIMARY",
+        queryDefinitionId: "sample-trend",
+        layout: { x: 0, y: 3, width: 8, height: 5 },
+        visualization: {
+          xField: "period",
+          yField: "spend",
+          valueField: "spend",
+          showLegend: false,
+          palette: "BLUE",
+        },
+        dataMapping: { dimensions: ["period"], measures: ["spend"] },
+        formatting: {
+          displayFormat: "CURRENCY",
+          decimals: 0,
+          currency: "THB",
+          compact: true,
+        },
+        filters: dashboardFilters,
+        interaction: { crossFilter: true, drillDown: true, export: true },
+        emptyStateMessage: "No spend trend for this selection.",
+      },
+      rows: [
+        { period: "2026-01-01", warehouse: "Bangkok", spend: 8200000 },
+        { period: "2026-02-01", warehouse: "Bangkok", spend: 8800000 },
+        { period: "2026-03-01", warehouse: "Bangkok", spend: 9100000 },
+        { period: "2026-04-01", warehouse: "Bangkok", spend: 9900000 },
+        { period: "2026-05-01", warehouse: "Bangkok", spend: 10800000 },
+        { period: "2026-06-01", warehouse: "Bangkok", spend: 12500000 },
+        { period: "2026-01-01", warehouse: "Rayong", spend: 6100000 },
+        { period: "2026-02-01", warehouse: "Rayong", spend: 5900000 },
+        { period: "2026-03-01", warehouse: "Rayong", spend: 6700000 },
+        { period: "2026-04-01", warehouse: "Rayong", spend: 7200000 },
+        { period: "2026-05-01", warehouse: "Rayong", spend: 7600000 },
+        { period: "2026-06-01", warehouse: "Rayong", spend: 8100000 },
+      ],
+    },
+    {
+      type: "DONUT_CHART" as const,
+      title: "Spend by category",
+      definition: {
+        id: "spend_by_category",
+        type: "DONUT_CHART",
+        title: "Spend by category",
+        description: "Share of procurement spend across five categories.",
+        businessQuestion: "Which categories account for procurement spend?",
+        visualizationReason:
+          "Five non-negative categories support part-to-whole comparison.",
+        priority: "MEDIUM",
+        queryDefinitionId: "sample-category",
+        layout: { x: 8, y: 3, width: 4, height: 5 },
+        visualization: {
+          categoryField: "category",
+          valueField: "spend",
+          showLegend: true,
+          palette: "BLUE",
+        },
+        dataMapping: { dimensions: ["category"], measures: ["spend"] },
+        formatting: {
+          displayFormat: "CURRENCY",
+          decimals: 0,
+          currency: "THB",
+          compact: true,
+        },
+        interaction: { crossFilter: true, drillDown: true, export: true },
+        emptyStateMessage: "No category mix data.",
+      },
+      rows: [
+        { category: "Raw materials", spend: 14200000 },
+        { category: "Packaging", spend: 6900000 },
+        { category: "MRO", spend: 4800000 },
+        { category: "Logistics", spend: 3900000 },
+        { category: "Services", spend: 2700000 },
+      ],
+    },
+    {
+      type: "HORIZONTAL_BAR_CHART" as const,
+      title: "Supplier performance",
+      definition: {
+        id: "supplier_performance",
+        type: "HORIZONTAL_BAR_CHART",
+        title: "Supplier performance",
+        description: "Top suppliers ranked by performance score.",
+        businessQuestion: "Which suppliers perform best?",
+        visualizationReason:
+          "A ranked horizontal bar keeps supplier names readable.",
+        priority: "MEDIUM",
+        queryDefinitionId: "sample-supplier",
+        layout: { x: 0, y: 8, width: 6, height: 4 },
+        visualization: {
+          categoryField: "supplier",
+          valueField: "score",
+          showLegend: false,
+          palette: "EMERALD",
+        },
+        dataMapping: { dimensions: ["supplier"], measures: ["score"] },
+        formatting: {
+          displayFormat: "NUMBER",
+          decimals: 1,
+          compact: false,
+          suffix: "/100",
+        },
+        interaction: { crossFilter: false, drillDown: true, export: true },
+        emptyStateMessage: "No supplier performance data.",
+      },
+      rows: [
+        { supplier: "Siam Industrial", score: 96 },
+        { supplier: "Eastern Components", score: 91 },
+        { supplier: "Metro Packaging", score: 88 },
+        { supplier: "Thai MRO Supply", score: 84 },
+        { supplier: "Pacific Logistics", score: 79 },
+      ],
+    },
+    {
+      type: "FUNNEL_CHART" as const,
+      title: "Purchase-order flow",
+      definition: {
+        id: "purchase_order_flow",
+        type: "FUNNEL_CHART",
+        title: "Purchase-order flow",
+        description: "Conversion from requisitions to received orders.",
+        businessQuestion: "Where do purchase orders stall in the process?",
+        visualizationReason:
+          "Ordered process stages require a conversion funnel.",
+        priority: "MEDIUM",
+        queryDefinitionId: "sample-funnel",
+        layout: { x: 6, y: 8, width: 6, height: 4 },
+        visualization: {
+          stageField: "stage",
+          valueField: "orders",
+          showLegend: false,
+          palette: "BLUE",
+        },
+        dataMapping: { dimensions: ["stage"], measures: ["orders"] },
+        formatting: { displayFormat: "NUMBER", decimals: 0, compact: true },
+        interaction: { crossFilter: true, drillDown: true, export: true },
+        emptyStateMessage: "No purchase-order stage data.",
+      },
+      rows: [
+        { stage: "Requisition", orders: 1240 },
+        { stage: "Approved", orders: 1080 },
+        { stage: "Ordered", orders: 960 },
+        { stage: "Shipped", orders: 840 },
+        { stage: "Received", orders: 790 },
+      ],
+    },
+    {
+      type: "WATERFALL_CHART" as const,
+      title: "Spend variance drivers",
+      definition: {
+        id: "spend_variance",
+        type: "WATERFALL_CHART",
+        title: "Spend variance drivers",
+        description: "Positive and negative contributions to spend variance.",
+        businessQuestion: "What is driving the change in procurement spend?",
+        visualizationReason:
+          "Signed contributions are best explained by a waterfall.",
+        priority: "MEDIUM",
+        queryDefinitionId: "sample-waterfall",
+        layout: { x: 0, y: 12, width: 7, height: 4 },
+        visualization: {
+          categoryField: "driver",
+          valueField: "variance",
+          showLegend: false,
+          palette: "SLATE",
+        },
+        dataMapping: { dimensions: ["driver"], measures: ["variance"] },
+        formatting: {
+          displayFormat: "CURRENCY",
+          decimals: 0,
+          currency: "THB",
+          compact: true,
+        },
+        interaction: { crossFilter: false, drillDown: true, export: true },
+        emptyStateMessage: "No spend variance drivers.",
+      },
+      rows: [
+        { driver: "Volume", variance: 1600000 },
+        { driver: "Price", variance: 900000 },
+        { driver: "FX", variance: 350000 },
+        { driver: "Savings", variance: -720000 },
+        { driver: "Logistics", variance: 280000 },
+      ],
+    },
+    {
+      type: "TIMELINE" as const,
+      title: "Upcoming deliveries",
+      definition: {
+        id: "delivery_timeline",
+        type: "TIMELINE",
+        title: "Upcoming deliveries",
+        description: "Scheduled inbound deliveries requiring attention.",
+        businessQuestion: "Which important deliveries are approaching?",
+        visualizationReason: "Scheduled events are clearest on a timeline.",
+        priority: "MEDIUM",
+        queryDefinitionId: "sample-timeline",
+        layout: { x: 7, y: 12, width: 5, height: 4 },
+        visualization: {
+          categoryField: "delivery",
+          startField: "start_date",
+          endField: "end_date",
+          showLegend: false,
+          palette: "BLUE",
+        },
+        dataMapping: {
+          dimensions: ["delivery", "start_date", "end_date"],
+          measures: [],
+        },
+        formatting: { displayFormat: "TEXT", decimals: 0, compact: false },
+        interaction: { crossFilter: false, drillDown: true, export: true },
+        emptyStateMessage: "No upcoming deliveries.",
+      },
+      rows: [
+        {
+          delivery: "Steel coils · Siam Industrial",
+          start_date: "2026-07-20",
+          end_date: "2026-07-21",
+        },
+        {
+          delivery: "Packaging film · Metro Packaging",
+          start_date: "2026-07-23",
+          end_date: "2026-07-24",
+        },
+        {
+          delivery: "Bearings · Eastern Components",
+          start_date: "2026-07-26",
+          end_date: "2026-07-28",
+        },
+        {
+          delivery: "Safety stock replenishment",
+          start_date: "2026-07-30",
+          end_date: "2026-08-02",
+        },
+      ],
+    },
+    {
+      type: "TABLE" as const,
+      title: "Low-stock exceptions",
+      definition: {
+        id: "low_stock_exceptions",
+        type: "TABLE",
+        title: "Low-stock exceptions",
+        description: "Items below reorder level requiring inspection.",
+        businessQuestion: "Which items require immediate replenishment?",
+        visualizationReason:
+          "Operational exceptions require record-level inspection.",
+        priority: "HIGH",
+        queryDefinitionId: "sample-exceptions",
+        layout: { x: 0, y: 16, width: 12, height: 4 },
+        visualization: {
+          categoryField: "item",
+          statusField: "status",
+          showLegend: false,
+          palette: "AMBER",
+        },
+        dataMapping: {
+          dimensions: ["item", "warehouse", "status"],
+          measures: ["on_hand", "reorder_level"],
+        },
+        formatting: { displayFormat: "NUMBER", decimals: 0, compact: false },
+        interaction: { crossFilter: true, drillDown: true, export: true },
+        emptyStateMessage: "No low-stock exceptions.",
+      },
+      rows: [
+        {
+          item: "Bearing 6205",
+          warehouse: "Rayong",
+          on_hand: 12,
+          reorder_level: 40,
+          status: "Critical",
+        },
+        {
+          item: "Safety glove L",
+          warehouse: "Bangkok",
+          on_hand: 85,
+          reorder_level: 120,
+          status: "Warning",
+        },
+        {
+          item: "Packaging film 40µ",
+          warehouse: "Bangkok",
+          on_hand: 18,
+          reorder_level: 65,
+          status: "Critical",
+        },
+      ],
+    },
+    {
+      type: "AI_INSIGHT" as const,
+      title: "AI business insight",
+      definition: {
+        id: "ai_business_insight",
+        type: "AI_INSIGHT",
+        title: "AI business insight",
+        description:
+          "Spend accelerated above target while supplier delivery remained below the 95% goal. Raw materials explain the largest share, and the order funnel loses 18% before ordering.",
+        businessQuestion: "What should procurement leadership focus on now?",
+        visualizationReason:
+          "A separated narrative panel highlights grounded cross-widget findings.",
+        priority: "HIGH",
+        layout: { x: 0, y: 20, width: 12, height: 3 },
+        visualization: { showLegend: false, palette: "BLUE" },
+        dataMapping: { dimensions: [], measures: [] },
+        formatting: { displayFormat: "TEXT", decimals: 0, compact: false },
+        interaction: { crossFilter: false, drillDown: false, export: false },
+        emptyStateMessage: "No grounded insight is available.",
+      },
+      rows: [{ insight: "Spend requires management attention." }],
+    },
+  ];
+  await prisma.dashboardWidget.deleteMany({
+    where: { dashboardId: showcase.id },
+  });
+  for (const [position, widget] of sampleWidgets.entries()) {
+    await prisma.dashboardWidget.create({
+      data: {
+        dashboardId: showcase.id,
+        type: widget.type,
+        title: widget.title,
+        position,
+        config: {
+          version: 2,
+          definition: widget.definition,
+          sampleRows: widget.rows,
+          seeded: true,
+        },
+      },
+    });
+  }
   console.log(
-    `Seeded demo user ${user.email}, workspace ${workspace.name}, and dashboard ${dashboard.name}.`,
+    `Seeded initial administrator ${user.email}, workspace ${workspace.name}, dashboard ${dashboard.name}, and visual showcase ${showcase.name}.`,
   );
 }
 

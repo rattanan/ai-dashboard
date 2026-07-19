@@ -11,7 +11,7 @@ import {
 
 export const metadata = { title: "Sign in" };
 export default async function LoginPage() {
-  if ((await auth())?.user) redirect("/workspace");
+  if ((await auth())?.user?.id) redirect("/workspace");
   return (
     <Card>
       <CardHeader className="pb-5">

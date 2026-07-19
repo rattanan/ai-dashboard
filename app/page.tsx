@@ -1,17 +1,11 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import {
-  ArrowRight,
-  Bot,
-  Database,
-  LayoutDashboard,
-  LockKeyhole,
-} from "lucide-react";
+import { Bot, Database, LayoutDashboard, LockKeyhole } from "lucide-react";
 import { auth } from "@/auth";
 import { Button } from "@/components/ui/button";
 
 export default async function HomePage() {
-  if ((await auth())?.user) redirect("/workspace");
+  if ((await auth())?.user?.id) redirect("/workspace");
   return (
     <main id="main-content" className="min-h-dvh bg-white">
       <nav
@@ -27,14 +21,9 @@ export default async function HomePage() {
           </span>
           AI Dashboard
         </Link>
-        <div className="flex items-center gap-2">
-          <Button asChild variant="ghost">
-            <Link href="/login">Sign in</Link>
-          </Button>
-          <Button asChild>
-            <Link href="/register">Create account</Link>
-          </Button>
-        </div>
+        <Button asChild variant="ghost">
+          <Link href="/login">Sign in</Link>
+        </Button>
       </nav>
       <section className="border-y bg-background">
         <div className="mx-auto grid max-w-7xl items-center gap-14 px-5 py-20 sm:px-8 lg:grid-cols-[1.05fr_.95fr] lg:py-28">
@@ -50,13 +39,7 @@ export default async function HomePage() {
               and prepare a governed dashboard workspace for AI-assisted
               analysis.
             </p>
-            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-              <Button asChild size="lg">
-                <Link href="/register">
-                  Build your workspace{" "}
-                  <ArrowRight size={18} aria-hidden="true" />
-                </Link>
-              </Button>
+            <div className="mt-8">
               <Button asChild size="lg" variant="outline">
                 <Link href="/login">Sign in to your workspace</Link>
               </Button>

@@ -20,6 +20,14 @@ export type AIRequest<T> = {
   systemPrompt: string;
   userPrompt: string;
   promptVersion: string;
+  onProgress?: (progress: AIStreamProgress) => void | Promise<void>;
+};
+
+export type AIStreamProgress = {
+  elapsedMs: number;
+  chunkCount: number;
+  receivedBytes: number;
+  receivedFirstChunk: boolean;
 };
 
 export type AIResponse<T> = {
@@ -51,6 +59,7 @@ export type AIProviderConfiguration = {
   apiKey?: string;
   model?: string;
   timeoutMs: number;
+  inactivityTimeoutMs: number;
   maxRetries: number;
   temperature: number;
   supportsJsonSchema: boolean;

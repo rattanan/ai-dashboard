@@ -1,12 +1,23 @@
 "use server";
 
-import { hash } from "@node-rs/argon2";
 import { AuthError } from "next-auth";
 import { redirect } from "next/navigation";
-import { signIn, signOut } from "@/auth";
-import { registerSchema } from "@/schemas/auth";
+import { headers } from "next/headers";
+import { auth, signIn, signOut } from "@/auth";
+import {
+  changePasswordSchema,
+  forgotPasswordSchema,
+  resetPasswordSchema,
+} from "@/schemas/auth";
 import { db } from "@/server/db";
-import { logger } from "@/server/services/logger";
+import {
+  changeTemporaryPassword,
+  consumePasswordReset,
+  createPasswordReset,
+} from "@/server/services/password-reset";
+import { consumeRateLimit } from "@/server/services/rate-limit";
+import { env } from "@/schemas/env";
+import { deliverPasswordReset } from "@/server/services/password-reset-delivery";
 import type { AppResult } from "@/types/result";
 import { failure, success } from "@/types/result";
 
@@ -14,51 +25,11 @@ export async function registerAction(
   _previous: AppResult<{ registered: true }> | null,
   formData: FormData,
 ) {
-  const parsed = registerSchema.safeParse(Object.fromEntries(formData));
-  if (!parsed.success) {
-    return failure(
-      "VALIDATION_ERROR",
-      "Please correct the highlighted fields.",
-      {
-        fieldErrors: parsed.error.flatten().fieldErrors,
-      },
-    );
-  }
-  try {
-    const existing = await db.user.findUnique({
-      where: { email: parsed.data.email },
-      select: { id: true },
-    });
-    if (existing)
-      return failure(
-        "CONFLICT",
-        "An account already exists for this email address.",
-      );
-
-    await db.user.create({
-      data: {
-        name: parsed.data.name,
-        email: parsed.data.email,
-        passwordHash: await hash(parsed.data.password, {
-          algorithm: 2,
-          memoryCost: 19456,
-          timeCost: 2,
-        }),
-      },
-    });
-  } catch (error) {
-    logger.error("Registration database operation failed", { error });
-    return failure(
-      "INTERNAL_ERROR",
-      "The account service is temporarily unavailable. Check the application database and try again.",
-    );
-  }
-  await signIn("credentials", {
-    email: parsed.data.email,
-    password: parsed.data.password,
-    redirect: false,
-  });
-  redirect("/onboarding");
+  void formData;
+  return failure(
+    "FORBIDDEN",
+    "Public registration is disabled. Contact your system administrator.",
+  );
 }
 
 export async function loginAction(
@@ -67,18 +38,122 @@ export async function loginAction(
 ) {
   try {
     await signIn("credentials", {
-      email: String(formData.get("email") ?? ""),
+      identifier: String(formData.get("identifier") ?? ""),
       password: String(formData.get("password") ?? ""),
-      redirectTo: "/workspace",
+      rememberMe: formData.get("rememberMe") === "on",
+      redirect: false,
     });
-    return success({ authenticated: true as const });
+    const session = await auth();
+    redirect(
+      session?.user?.mustChangePassword ? "/change-password" : "/workspace",
+    );
   } catch (error) {
     if (error instanceof AuthError)
-      return failure("UNAUTHENTICATED", "Email or password is incorrect.");
+      return failure(
+        "UNAUTHENTICATED",
+        "Sign-in failed. Check your credentials or contact an administrator.",
+      );
     throw error;
   }
 }
 
 export async function logoutAction() {
+  const session = await auth();
+  if (session?.user?.loginHistoryId) {
+    await db.loginHistory.updateMany({
+      where: { id: session.user.loginHistoryId, userId: session.user.id },
+      data: { logoutAt: new Date() },
+    });
+  }
+  if (session?.user?.id) {
+    const membership = await db.organizationMember.findFirst({
+      where: { userId: session.user.id },
+    });
+    if (membership)
+      await db.auditLog.create({
+        data: {
+          organizationId: membership.organizationId,
+          actorId: session.user.id,
+          action: "LOGOUT",
+          entityType: "User",
+          entityId: session.user.id,
+        },
+      });
+  }
   await signOut({ redirectTo: "/" });
+}
+
+export async function forgotPasswordAction(
+  _previous: AppResult<{
+    submitted: true;
+    developmentResetUrl?: string;
+  }> | null,
+  formData: FormData,
+) {
+  const parsed = forgotPasswordSchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success)
+    return failure("VALIDATION_ERROR", "Enter a valid email address.", {
+      fieldErrors: parsed.error.flatten().fieldErrors,
+    });
+  const requestHeaders = await headers();
+  const requestKey =
+    requestHeaders.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    requestHeaders.get("x-real-ip") ||
+    parsed.data.email;
+  if (
+    !(await consumeRateLimit(
+      "forgot-password",
+      requestKey,
+      Math.min(10, env().LOGIN_RATE_LIMIT_MAX_ATTEMPTS),
+      env().LOGIN_RATE_LIMIT_WINDOW_MINUTES,
+    ))
+  )
+    return success<{ submitted: true; developmentResetUrl?: string }>({
+      submitted: true,
+    });
+  const reset = await createPasswordReset(parsed.data.email);
+  if (reset.userId) await deliverPasswordReset(parsed.data.email, reset.token);
+  return success<{ submitted: true; developmentResetUrl?: string }>({
+    submitted: true,
+    ...(process.env.NODE_ENV === "development"
+      ? { developmentResetUrl: `/reset-password?token=${reset.token}` }
+      : {}),
+  });
+}
+
+export async function resetPasswordAction(
+  _previous: AppResult<{ reset: true }> | null,
+  formData: FormData,
+) {
+  const parsed = resetPasswordSchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success)
+    return failure("VALIDATION_ERROR", "Check the password requirements.", {
+      fieldErrors: parsed.error.flatten().fieldErrors,
+    });
+  if (!(await consumePasswordReset(parsed.data.token, parsed.data.password)))
+    return failure("UNAUTHENTICATED", "This reset link is invalid or expired.");
+  return success({ reset: true as const });
+}
+
+export async function changePasswordAction(
+  _previous: AppResult<{ changed: true }> | null,
+  formData: FormData,
+) {
+  const session = await auth();
+  if (!session?.user?.id) return failure("UNAUTHENTICATED", "Sign in again.");
+  const parsed = changePasswordSchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success)
+    return failure("VALIDATION_ERROR", "Check the password requirements.", {
+      fieldErrors: parsed.error.flatten().fieldErrors,
+    });
+  if (
+    !(await changeTemporaryPassword(
+      session.user.id,
+      parsed.data.currentPassword,
+      parsed.data.password,
+    ))
+  )
+    return failure("UNAUTHENTICATED", "The current password is incorrect.");
+  await signOut({ redirect: false });
+  redirect("/login?passwordChanged=1");
 }

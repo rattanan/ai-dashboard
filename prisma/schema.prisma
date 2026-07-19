@@ -65,14 +65,32 @@ enum DashboardTheme {
 
 enum WidgetType {
   KPI
+  STAT
   BAR_CHART
+  HORIZONTAL_BAR_CHART
+  STACKED_BAR_CHART
+  COMBO_CHART
   LINE_CHART
   AREA_CHART
   PIE_CHART
   DONUT_CHART
   SCATTER_CHART
+  SCATTER_PLOT
   GAUGE
+  BULLET_CHART
+  PROGRESS_RING
+  FUNNEL_CHART
+  WATERFALL_CHART
+  RADAR_CHART
+  TREEMAP
+  HEATMAP
+  TIMELINE
+  GANTT_CHART
+  SANKEY_DIAGRAM
+  MAP
   TABLE
+  ALERT_LIST
+  AI_INSIGHT
   TEXT_INSIGHT
   FILTER
 }
@@ -132,24 +150,74 @@ enum QueryExecutionStatus {
   FAILED
 }
 
+enum AccountStatus {
+  PENDING_ACTIVATION
+  ACTIVE
+  LOCKED
+  DISABLED
+}
+
+enum DashboardAccessLevel {
+  OWNER
+  EDITOR
+  VIEWER
+  AI_ANALYST
+}
+
+enum ExcelImportStatus {
+  PROCESSING
+  COMPLETED
+  FAILED
+  ROLLED_BACK
+}
+
+enum LoginEventStatus {
+  SUCCESS
+  FAILED
+  LOCKED
+  LOGOUT
+}
+
 model User {
-  id              String                   @id @default(cuid())
-  name            String?
-  email           String                   @unique
-  emailVerified   DateTime?
-  image           String?
-  passwordHash    String?
-  accounts        Account[]
-  sessions        Session[]
-  memberships     OrganizationMember[]
-  workspaces      Workspace[]              @relation("WorkspaceCreator")
-  dataSources     DataSource[]             @relation("DataSourceCreator")
-  dashboards      Dashboard[]              @relation("DashboardCreator")
-  auditLogs       AuditLog[]               @relation("AuditActor")
-  analysisJobs    AnalysisJob[]            @relation("AnalysisRequestedBy")
-  analysisReviews AnalysisRecommendation[] @relation("AnalysisReviewedBy")
-  createdAt       DateTime                 @default(now())
-  updatedAt       DateTime                 @updatedAt
+  id                    String                   @id @default(cuid())
+  name                  String?
+  email                 String                   @unique
+  emailVerified         DateTime?
+  image                 String?
+  passwordHash          String?
+  username              String?                  @unique
+  status                AccountStatus            @default(PENDING_ACTIVATION)
+  mustChangePassword    Boolean                  @default(false)
+  failedLoginCount      Int                      @default(0)
+  lockedUntil           DateTime?
+  lastLoginAt           DateTime?
+  sessionVersion        Int                      @default(1)
+  createdById           String?
+  deletedAt             DateTime?
+  createdBy             User?                    @relation("UserCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  createdUsers          User[]                   @relation("UserCreator")
+  accounts              Account[]
+  sessions              Session[]
+  memberships           OrganizationMember[]
+  workspaces            Workspace[]              @relation("WorkspaceCreator")
+  dataSources           DataSource[]             @relation("DataSourceCreator")
+  dashboards            Dashboard[]              @relation("DashboardCreator")
+  auditLogs             AuditLog[]               @relation("AuditActor")
+  analysisJobs          AnalysisJob[]            @relation("AnalysisRequestedBy")
+  analysisReviews       AnalysisRecommendation[] @relation("AnalysisReviewedBy")
+  userRoles             UserRole[]
+  dataSourceAccess      DataSourceAccess[]
+  dashboardAccess       DashboardAccess[]
+  aiAccessPolicies      AIAccessPolicy[]
+  aiCopilotLogs         AiCopilotLog[]
+  passwordResets        PasswordResetToken[]
+  loginHistory          LoginHistory[]
+  uploadedExcelVersions ExcelFileVersion[]       @relation("ExcelVersionUploader")
+  createdAt             DateTime                 @default(now())
+  updatedAt             DateTime                 @updatedAt
+
+  @@index([status, deletedAt])
+  @@index([createdById])
 }
 
 model Account {
@@ -190,15 +258,22 @@ model VerificationToken {
 }
 
 model Organization {
-  id           String               @id @default(cuid())
-  name         String
-  slug         String               @unique
-  members      OrganizationMember[]
-  workspaces   Workspace[]
-  auditLogs    AuditLog[]
-  analysisJobs AnalysisJob[]
-  createdAt    DateTime             @default(now())
-  updatedAt    DateTime             @updatedAt
+  id               String               @id @default(cuid())
+  name             String
+  slug             String               @unique
+  members          OrganizationMember[]
+  workspaces       Workspace[]
+  auditLogs        AuditLog[]
+  analysisJobs     AnalysisJob[]
+  roles            Role[]
+  userRoles        UserRole[]
+  dataSourceAccess DataSourceAccess[]
+  dashboardAccess  DashboardAccess[]
+  aiAccessPolicies AIAccessPolicy[]
+  loginHistory     LoginHistory[]
+  aiCopilotLogs    AiCopilotLog[]
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
 }
 
 model OrganizationMember {
@@ -258,6 +333,9 @@ model DataSource {
   schemas           DataSourceSchema[]
   dashboards        DashboardDataSource[]
   analysisJobs      AnalysisJob[]
+  access            DataSourceAccess[]
+  excelVersions     ExcelFileVersion[]
+  aiCopilotLogs     AiCopilotLog[]
   createdAt         DateTime              @default(now())
   updatedAt         DateTime              @updatedAt
 
@@ -377,6 +455,9 @@ model Dashboard {
   versions          DashboardVersion[]
   widgets           DashboardWidget[]
   analysisJobs      AnalysisJob[]
+  access            DashboardAccess[]
+  aiCopilotLogs     AiCopilotLog[]
+  hasSchemaWarning  Boolean               @default(false)
   createdAt         DateTime              @default(now())
   updatedAt         DateTime              @updatedAt
 
@@ -579,6 +660,14 @@ model AuditLog {
   outcome        String       @default("SUCCESS")
   metadata       Json?
   requestId      String?
+  actorName      String?
+  entityName     String?
+  beforeValue    Json?
+  afterValue     Json?
+  ipAddress      String?
+  userAgent      String?
+  errorMessage   String?
+  correlationId  String?
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   workspace      Workspace?   @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
   actor          User?        @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
@@ -586,4 +675,249 @@ model AuditLog {
 
   @@index([organizationId, createdAt])
   @@index([workspaceId, createdAt])
+  @@index([organizationId, action, createdAt])
+  @@index([actorId, createdAt])
+}
+
+model Role {
+  id             String           @id @default(cuid())
+  organizationId String
+  name           String
+  description    String?
+  systemKey      String?
+  isSystem       Boolean          @default(false)
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  users          UserRole[]
+  permissions    RolePermission[]
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@unique([organizationId, name])
+  @@unique([organizationId, systemKey])
+  @@index([organizationId])
+}
+
+model Permission {
+  id          String           @id @default(cuid())
+  key         String           @unique
+  description String?
+  roles       RolePermission[]
+  createdAt   DateTime         @default(now())
+}
+
+model UserRole {
+  id             String       @id @default(cuid())
+  organizationId String
+  userId         String
+  roleId         String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role           Role         @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+
+  @@unique([organizationId, userId, roleId])
+  @@index([userId, organizationId])
+  @@index([roleId])
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  createdAt    DateTime   @default(now())
+
+  @@id([roleId, permissionId])
+  @@index([permissionId])
+}
+
+model DataSourceAccess {
+  id             String       @id @default(cuid())
+  organizationId String
+  dataSourceId   String
+  userId         String
+  canPreview     Boolean      @default(true)
+  canBuild       Boolean      @default(false)
+  canManage      Boolean      @default(false)
+  grantedById    String?
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  dataSource     DataSource   @relation(fields: [dataSourceId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([dataSourceId, userId])
+  @@index([organizationId, userId])
+}
+
+model DashboardAccess {
+  id             String               @id @default(cuid())
+  organizationId String
+  dashboardId    String
+  userId         String
+  level          DashboardAccessLevel
+  canExport      Boolean              @default(false)
+  grantedById    String?
+  organization   Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  dashboard      Dashboard            @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
+  user           User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  @@unique([dashboardId, userId])
+  @@index([organizationId, userId, level])
+}
+
+model AIAccessPolicy {
+  id             String       @id @default(cuid())
+  organizationId String
+  userId         String
+  copilotEnabled Boolean      @default(false)
+  allowSensitive Boolean      @default(false)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([organizationId, userId])
+}
+
+model PasswordResetToken {
+  id             String    @id @default(cuid())
+  userId         String
+  tokenHash      String    @unique
+  expiresAt      DateTime
+  usedAt         DateTime?
+  createdByAdmin Boolean   @default(false)
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt      DateTime  @default(now())
+
+  @@index([userId, expiresAt])
+}
+
+model LoginHistory {
+  id              String           @id @default(cuid())
+  organizationId  String?
+  userId          String?
+  identifier      String
+  status          LoginEventStatus
+  failureReason   String?
+  ipAddress       String?
+  browser         String?
+  operatingSystem String?
+  device          String?
+  userAgent       String?
+  sessionId       String?
+  logoutAt        DateTime?
+  organization    Organization?    @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  user            User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
+  createdAt       DateTime         @default(now())
+
+  @@index([organizationId, createdAt])
+  @@index([userId, createdAt])
+  @@index([identifier, createdAt])
+  @@index([ipAddress, createdAt])
+}
+
+model ExcelFileVersion {
+  id             String            @id @default(cuid())
+  dataSourceId   String
+  version        Int
+  storageKey     String            @unique
+  originalName   String
+  mimeType       String
+  sizeBytes      Int
+  checksum       String
+  status         ExcelImportStatus @default(PROCESSING)
+  uploadedById   String
+  changeSummary  Json?
+  warningSummary Json?
+  rowCount       Int               @default(0)
+  sheetCount     Int               @default(0)
+  isCurrent      Boolean           @default(false)
+  importedAt     DateTime?
+  dataSource     DataSource        @relation(fields: [dataSourceId], references: [id], onDelete: Cascade)
+  uploadedBy     User              @relation("ExcelVersionUploader", fields: [uploadedById], references: [id])
+  sheets         ExcelSheet[]
+  createdAt      DateTime          @default(now())
+
+  @@unique([dataSourceId, version])
+  @@index([dataSourceId, isCurrent])
+}
+
+model ExcelSheet {
+  id          String           @id @default(cuid())
+  versionId   String
+  name        String
+  rowCount    Int              @default(0)
+  columnCount Int              @default(0)
+  version     ExcelFileVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  columns     ExcelColumn[]
+  rows        ExcelSheetRow[]
+  createdAt   DateTime         @default(now())
+
+  @@unique([versionId, name])
+  @@index([versionId])
+}
+
+model ExcelColumn {
+  id       String     @id @default(cuid())
+  sheetId  String
+  name     String
+  dataType String
+  ordinal  Int
+  nullable Boolean    @default(true)
+  sheet    ExcelSheet @relation(fields: [sheetId], references: [id], onDelete: Cascade)
+
+  @@unique([sheetId, name])
+  @@index([sheetId, ordinal])
+}
+
+model ExcelSheetRow {
+  id         String     @id @default(cuid())
+  sheetId    String
+  rowNumber  Int
+  data       Json
+  searchText String
+  sheet      ExcelSheet @relation(fields: [sheetId], references: [id], onDelete: Cascade)
+
+  @@unique([sheetId, rowNumber])
+  @@index([sheetId, rowNumber])
+}
+
+model AiCopilotLog {
+  id              String       @id @default(cuid())
+  organizationId  String
+  userId          String
+  dashboardId     String?
+  dataSourceId    String?
+  question        String
+  generatedSql    String?
+  executionStatus String
+  rowsAccessed    Int?
+  responseTimeMs  Int?
+  finalAnswer     String?
+  deniedReason    String?
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user            User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dashboard       Dashboard?   @relation(fields: [dashboardId], references: [id], onDelete: SetNull)
+  dataSource      DataSource?  @relation(fields: [dataSourceId], references: [id], onDelete: SetNull)
+  createdAt       DateTime     @default(now())
+
+  @@index([organizationId, createdAt])
+  @@index([userId, dashboardId, createdAt])
+}
+
+model SecurityRateLimit {
+  id          String   @id @default(cuid())
+  scope       String
+  keyHash     String
+  windowStart DateTime
+  count       Int      @default(1)
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([scope, keyHash, windowStart])
+  @@index([expiresAt])
 }

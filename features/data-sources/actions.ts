@@ -1,7 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { OrganizationRole } from "@/generated/prisma/enums";
+import { revalidatePath } from "next/cache";
 import {
   databaseConnectionSchema,
   dashboardAppearanceSchema,
@@ -10,16 +10,24 @@ import {
 } from "@/schemas/data-source";
 import { requireAuthorization } from "@/server/auth/authorization";
 import {
+  hasPermission,
+  requireDashboardAccess,
+  requireDataSourceAccess,
+  requirePermission,
+} from "@/server/auth/permissions";
+import {
   createDatabaseDataSource,
   deleteDataSource,
 } from "@/server/services/data-source-service";
 import { db } from "@/server/db";
 import { logger } from "@/server/services/logger";
+import { createAnalysisJob } from "@/server/services/analysis-job-service";
 import { failure, success } from "@/types/result";
 import type { AppResult } from "@/types/result";
 
 export async function createDatabaseDataSourceAction(input: unknown) {
-  const context = await requireAuthorization(OrganizationRole.ADMIN);
+  const context = await requireAuthorization();
+  await requirePermission(context, "datasource.create");
   const parsed = databaseConnectionSchema.safeParse(input);
   if (!parsed.success)
     return failure(
@@ -34,7 +42,8 @@ export async function deleteDataSourceAction(
   _previous: AppResult<{ deleted: true; id: string }> | null,
   formData: FormData,
 ) {
-  const context = await requireAuthorization(OrganizationRole.ADMIN);
+  const context = await requireAuthorization();
+  await requirePermission(context, "datasource.delete");
   const parsed = deleteDataSourceSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) {
     return failure(
@@ -45,6 +54,7 @@ export async function deleteDataSourceAction(
       },
     );
   }
+  await requireDataSourceAccess(context, parsed.data.dataSourceId, "manage");
   return deleteDataSource(
     context,
     parsed.data.dataSourceId,
@@ -56,7 +66,9 @@ export async function saveDataScopeAction(
   dataSourceId: string,
   tableIds: string[],
 ) {
-  const context = await requireAuthorization(OrganizationRole.ADMIN);
+  const context = await requireAuthorization();
+  await requirePermission(context, "datasource.update");
+  await requireDataSourceAccess(context, dataSourceId, "manage");
   const source = await db.dataSource.findFirst({
     where: { id: dataSourceId, workspaceId: context.workspaceId },
   });
@@ -75,9 +87,7 @@ export async function saveDataScopeAction(
 }
 
 export async function saveObjectiveAction(input: unknown) {
-  const context = await requireAuthorization(
-    OrganizationRole.DASHBOARD_DESIGNER,
-  );
+  const context = await requireAuthorization();
   const parsed = dashboardObjectiveSchema.safeParse(input);
   if (!parsed.success)
     return failure(
@@ -89,6 +99,9 @@ export async function saveObjectiveAction(input: unknown) {
     where: { id: parsed.data.dataSourceId, workspaceId: context.workspaceId },
   });
   if (!source) return failure("NOT_FOUND", "Data source not found.");
+  if (!(await hasPermission(context, "role.manage"))) {
+    await requireDataSourceAccess(context, source.id, "build");
+  }
   const values = {
     name: parsed.data.name,
     businessArea: parsed.data.businessArea,
@@ -99,29 +112,53 @@ export async function saveObjectiveAction(input: unknown) {
     reportingPeriod: parsed.data.reportingPeriod,
     importantFilters: parsed.data.importantFilters,
   };
-  const dashboard = parsed.data.dashboardId
-    ? await db.dashboard.update({
-        where: {
-          id: parsed.data.dashboardId,
-          workspaceId: context.workspaceId,
+  let dashboard;
+  if (parsed.data.dashboardId) {
+    await requirePermission(context, "dashboard.update");
+    await requireDashboardAccess(context, parsed.data.dashboardId, "edit");
+    const existing = await db.dashboard.findFirst({
+      where: {
+        id: parsed.data.dashboardId,
+        workspaceId: context.workspaceId,
+        dataSources: { some: { dataSourceId: source.id } },
+      },
+      select: { id: true },
+    });
+    if (!existing) return failure("NOT_FOUND", "Dashboard draft not found.");
+    dashboard = await db.dashboard.update({
+      where: {
+        id: existing.id,
+      },
+      data: values,
+    });
+    revalidatePath(`/workspace/dashboards/${dashboard.id}`);
+    revalidatePath("/workspace/dashboards");
+  } else {
+    await requirePermission(context, "dashboard.create");
+    dashboard = await db.dashboard.create({
+      data: {
+        ...values,
+        workspaceId: context.workspaceId,
+        createdById: context.userId,
+        dataSources: { create: { dataSourceId: source.id } },
+        access: {
+          create: {
+            organizationId: context.organizationId,
+            userId: context.userId,
+            level: "OWNER",
+            canExport: true,
+            grantedById: context.userId,
+          },
         },
-        data: values,
-      })
-    : await db.dashboard.create({
-        data: {
-          ...values,
-          workspaceId: context.workspaceId,
-          createdById: context.userId,
-          dataSources: { create: { dataSourceId: source.id } },
-        },
-      });
+      },
+    });
+  }
   return success({ dashboardId: dashboard.id });
 }
 
 export async function saveAppearanceAction(input: unknown) {
-  const context = await requireAuthorization(
-    OrganizationRole.DASHBOARD_DESIGNER,
-  );
+  const context = await requireAuthorization();
+  await requirePermission(context, "dashboard.update");
   const parsed = dashboardAppearanceSchema.safeParse(input);
   if (!parsed.success)
     return failure("VALIDATION_ERROR", "Choose a layout, style, and theme.");
@@ -133,6 +170,7 @@ export async function saveAppearanceAction(input: unknown) {
       select: { id: true },
     });
     if (!dashboard) return failure("NOT_FOUND", "Dashboard draft not found.");
+    await requireDashboardAccess(context, dashboard.id, "edit");
 
     await db.dashboard.update({
       where: { id: dashboard.id },
@@ -158,53 +196,10 @@ export async function saveAppearanceAction(input: unknown) {
 }
 
 export async function startAnalysisAction(dashboardId: string) {
-  const context = await requireAuthorization(
-    OrganizationRole.DASHBOARD_DESIGNER,
-  );
-  const dashboard = await db.dashboard.findFirst({
-    where: { id: dashboardId, workspaceId: context.workspaceId },
-    include: {
-      dataSources: {
-        include: {
-          dataSource: {
-            include: {
-              schemas: { include: { tables: { where: { selected: true } } } },
-            },
-          },
-        },
-      },
-    },
-  });
-  if (!dashboard?.businessObjective || !dashboard.dataSources.length)
-    return failure(
-      "VALIDATION_ERROR",
-      "Complete the objective and data source steps first.",
-    );
-  const selectedTables = dashboard.dataSources.flatMap((item) =>
-    item.dataSource.schemas.flatMap((schema) =>
-      schema.tables.map((table) => `${schema.name}.${table.name}`),
-    ),
-  );
-  await db.$transaction([
-    db.dashboardVersion.create({
-      data: {
-        dashboardId,
-        version: 1,
-        createdById: context.userId,
-        snapshot: {
-          name: dashboard.name,
-          objective: dashboard.businessObjective,
-          layout: dashboard.layoutStyle,
-          visualStyle: dashboard.visualStyle,
-          theme: dashboard.visualTheme,
-          selectedTables,
-        },
-      },
-    }),
-    db.dashboard.update({
-      where: { id: dashboardId },
-      data: { status: "ANALYZING" },
-    }),
-  ]);
-  redirect(`/workspace/dashboards/${dashboardId}`);
+  const context = await requireAuthorization();
+  await requirePermission(context, "dashboard.update");
+  await requireDashboardAccess(context, dashboardId, "edit");
+  const result = await createAnalysisJob(context, dashboardId);
+  if (!result.ok) return result;
+  redirect(`/workspace/dashboards/${dashboardId}/analysis`);
 }

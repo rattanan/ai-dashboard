@@ -15,9 +15,39 @@ export const registerSchema = z.object({
 });
 
 export const loginSchema = z.object({
-  email: z.string().trim().toLowerCase().email(),
+  identifier: z.string().trim().min(3).max(254),
   password: z.string().min(1),
+  rememberMe: z.preprocess(
+    (value) => value === true || value === "on" || value === "true",
+    z.boolean(),
+  ),
 });
+
+export const forgotPasswordSchema = z.object({
+  email: z.string().trim().toLowerCase().email(),
+});
+
+export const resetPasswordSchema = z
+  .object({
+    token: z.string().min(32).max(256),
+    password,
+    confirmPassword: z.string(),
+  })
+  .refine((value) => value.password === value.confirmPassword, {
+    path: ["confirmPassword"],
+    message: "Passwords do not match.",
+  });
+
+export const changePasswordSchema = z
+  .object({
+    currentPassword: z.string().min(1),
+    password,
+    confirmPassword: z.string(),
+  })
+  .refine((value) => value.password === value.confirmPassword, {
+    path: ["confirmPassword"],
+    message: "Passwords do not match.",
+  });
 
 export const onboardingSchema = z.object({
   organizationName: z.string().trim().min(2).max(100),

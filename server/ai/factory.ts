@@ -10,6 +10,7 @@ export function aiProviderConfiguration(): AIProviderConfiguration {
     apiKey: configuration.AI_API_KEY,
     model: configuration.AI_MODEL,
     timeoutMs: configuration.AI_TIMEOUT_MS,
+    inactivityTimeoutMs: configuration.AI_STREAM_INACTIVITY_TIMEOUT_MS,
     maxRetries: configuration.AI_MAX_RETRIES,
     temperature: configuration.AI_TEMPERATURE,
     supportsJsonSchema: configuration.AI_SUPPORTS_JSON_SCHEMA,

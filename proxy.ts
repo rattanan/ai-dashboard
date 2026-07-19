@@ -1,5 +1,5 @@
 export { auth as proxy } from "@/auth";
 
 export const config = {
-  matcher: ["/workspace/:path*", "/onboarding/:path*"],
+  matcher: ["/workspace/:path*", "/onboarding/:path*", "/change-password"],
 };
