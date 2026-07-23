@@ -245,21 +245,40 @@ export const dashboardPlanSchema = z.object({
   subtitle: z.string().max(240).optional(),
   narrative: z.string().min(1).max(4_000),
   targetAudience: z.array(z.string().min(1).max(120)).max(10),
-  sections: z
-    .array(
-      z.object({
-        id: z.string().regex(/^[a-z0-9][a-z0-9_-]{1,63}$/),
-        title: z.string().min(1).max(120),
-        purpose: z.string().min(1).max(1_000),
-        businessQuestion: z.string().min(1).max(1_000),
-        recommendedWidgetTypes: z.array(dashboardWidgetTypeSchema).max(10),
-        priority: z.number().int().min(1).max(10),
-        layoutSize: z.enum(["SMALL", "MEDIUM", "LARGE", "FULL"]),
-        relatedKpiIds: z.array(z.string()).max(20),
-        relatedQueryIds: z.array(z.string()).max(20),
-      }),
-    )
-    .max(20),
+  sections: z.preprocess(
+    (value) =>
+      Array.isArray(value)
+        ? value.slice(0, 20).map((section) => {
+            if (!section || typeof section !== "object") return section;
+            const candidate = section as Record<string, unknown>;
+            const rawPriority = Number(candidate.priority);
+            // Priority only controls display order. OpenAI-compatible models
+            // commonly continue numbering past 10, which should not invalidate
+            // an otherwise grounded plan.
+            return {
+              ...candidate,
+              priority: Number.isFinite(rawPriority)
+                ? Math.min(10, Math.max(1, Math.round(rawPriority)))
+                : 10,
+            };
+          })
+        : value,
+    z
+      .array(
+        z.object({
+          id: z.string().regex(/^[a-z0-9][a-z0-9_-]{1,63}$/),
+          title: z.string().min(1).max(120),
+          purpose: z.string().min(1).max(1_000),
+          businessQuestion: z.string().min(1).max(1_000),
+          recommendedWidgetTypes: z.array(dashboardWidgetTypeSchema).max(10),
+          priority: z.number().int().min(1).max(10),
+          layoutSize: z.enum(["SMALL", "MEDIUM", "LARGE", "FULL"]),
+          relatedKpiIds: z.array(z.string()).max(20),
+          relatedQueryIds: z.array(z.string()).max(20),
+        }),
+      )
+      .max(20),
+  ),
   globalFilters: z.array(dashboardFilterSchema).max(12),
   template: z
     .enum([
@@ -293,26 +312,40 @@ export const dashboardWidgetDefinitionSchema = z
       width: z.number().int().min(1).max(12),
       height: z.number().int().min(2).max(12),
     }),
-    visualization: z.object({
-      xField: z.string().optional(),
-      yField: z.string().optional(),
-      categoryField: z.string().optional(),
-      valueField: z.string().optional(),
-      seriesField: z.string().optional(),
-      previousValueField: z.string().optional(),
-      targetField: z.string().optional(),
-      maximumField: z.string().optional(),
-      statusField: z.string().optional(),
-      stageField: z.string().optional(),
-      startField: z.string().optional(),
-      endField: z.string().optional(),
-      sourceField: z.string().optional(),
-      targetNodeField: z.string().optional(),
-      latitudeField: z.string().optional(),
-      longitudeField: z.string().optional(),
-      showLegend: z.boolean().default(true),
-      palette: z.enum(["BLUE", "EMERALD", "AMBER", "SLATE"]),
-    }),
+    visualization: z.preprocess(
+      (value) => {
+        if (typeof value === "string") return { palette: "BLUE" };
+        if (!value || typeof value !== "object") return value;
+        const candidate = value as Record<string, unknown>;
+        const palette = String(candidate.palette ?? "BLUE").toUpperCase();
+        return {
+          ...candidate,
+          palette: ["BLUE", "EMERALD", "AMBER", "SLATE"].includes(palette)
+            ? palette
+            : "BLUE",
+        };
+      },
+      z.object({
+        xField: z.string().optional(),
+        yField: z.string().optional(),
+        categoryField: z.string().optional(),
+        valueField: z.string().optional(),
+        seriesField: z.string().optional(),
+        previousValueField: z.string().optional(),
+        targetField: z.string().optional(),
+        maximumField: z.string().optional(),
+        statusField: z.string().optional(),
+        stageField: z.string().optional(),
+        startField: z.string().optional(),
+        endField: z.string().optional(),
+        sourceField: z.string().optional(),
+        targetNodeField: z.string().optional(),
+        latitudeField: z.string().optional(),
+        longitudeField: z.string().optional(),
+        showLegend: z.boolean().default(true),
+        palette: z.enum(["BLUE", "EMERALD", "AMBER", "SLATE"]),
+      }),
+    ),
     dataMapping: z.object({
       dimensions: z.array(z.string()).max(10).default([]),
       measures: z.array(z.string()).max(10),

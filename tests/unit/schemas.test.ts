@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { registerSchema } from "@/schemas/auth";
 import { envSchema } from "@/schemas/env";
 import {
+  dashboardPlanSchema,
   bulkRecommendationApprovalSchema,
   dashboardWidgetDefinitionSchema,
   recommendationDecisionSchema,
@@ -132,6 +133,42 @@ describe("application schemas", () => {
         widgetType: "BAR_CHART",
       }).success,
     ).toBe(true);
+  });
+  it("normalizes harmless dashboard-plan and visualization enum drift", () => {
+    expect(
+      dashboardPlanSchema.safeParse({
+        title: "Plan",
+        narrative: "Plan narrative",
+        targetAudience: [],
+        sections: Array.from({ length: 22 }, (_, index) => ({
+          id: `section-${index}`,
+          title: "Section",
+          purpose: "Purpose",
+          businessQuestion: "Question?",
+          recommendedWidgetTypes: ["KPI"],
+          priority: index + 1,
+          layoutSize: "SMALL",
+          relatedKpiIds: [],
+          relatedQueryIds: [],
+        })),
+        globalFilters: [],
+        warnings: [],
+      }).success,
+    ).toBe(true);
+    const widget = dashboardWidgetDefinitionSchema.safeParse({
+      id: "normalized-widget",
+      type: "KPI",
+      title: "Count",
+      businessQuestion: "How many?",
+      queryDefinitionId: "query",
+      layout: { x: 0, y: 0, width: 3, height: 2 },
+      visualization: { valueField: "count", palette: "purple" },
+      dataMapping: { measures: ["count"] },
+      formatting: { displayFormat: "NUMBER" },
+      emptyStateMessage: "No data",
+    });
+    expect(widget.success).toBe(true);
+    if (widget.success) expect(widget.data.visualization.palette).toBe("BLUE");
   });
   it("validates unique bulk recommendation selections", () => {
     expect(
