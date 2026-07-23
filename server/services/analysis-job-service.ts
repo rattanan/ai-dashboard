@@ -452,7 +452,10 @@ export async function retryAnalysisJob(
   });
   if (!failedJob)
     return failure("CONFLICT", "Only a failed analysis job can be retried.");
-  const rebuildMetadata = failedJob.errorCode === "AI_PROVIDER_ERROR";
+  const rebuildMetadata = [
+    "AI_PROVIDER_ERROR",
+    "ANALYSIS_SCOPE_INVALID",
+  ].includes(failedJob.errorCode ?? "");
   await db.$transaction(async (transaction) => {
     if (rebuildMetadata)
       await transaction.analysisArtifact.deleteMany({
