@@ -9,6 +9,7 @@ import {
   datePresetRange,
   DashboardRenderer,
   DashboardWidgetRenderer,
+  formatChartDateTime,
   prepareReorderRiskRows,
 } from "@/components/dashboard/dashboard-renderer";
 
@@ -53,6 +54,12 @@ const rows = [
 ];
 
 describe("dashboard renderer states and filters", () => {
+  it("formats chart timestamps without seconds or milliseconds", () => {
+    expect(formatChartDateTime("2022-06-30T17:00:00.000Z")).toBe(
+      "2022-06-30T17:00",
+    );
+  });
+
   it("shows controlled empty and query error states", () => {
     const { rerender } = render(
       <DashboardWidgetRenderer

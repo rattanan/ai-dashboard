@@ -986,7 +986,7 @@ export function SetupWizard({
             <Review
               label="Selected tables"
               value={
-                source.type === "MYSQL"
+                source.type === "MYSQL" || source.type === "ORACLE"
                   ? `${source.schemas.flatMap((s) => s.tables).filter((t) => t.selected).length} selected`
                   : `${source.sheetNames?.length ?? 0} sheets detected`
               }

@@ -1,7 +1,7 @@
 import { Parser } from "node-sql-parser";
 import type { MetadataContext } from "@/schemas/analysis";
 import { failure, success } from "@/types/result";
-import { validateReadOnlySql } from "./sql-guard";
+import { validateOracleReadOnlySql, validateReadOnlySql } from "./sql-guard";
 
 const parser = new Parser();
 const FORBIDDEN_FUNCTIONS = new Set([
@@ -126,10 +126,7 @@ function virtualRelationColumns(ast: AstNode) {
       const item = value as { as?: unknown; expr?: { ast?: AstNode } };
       const alias = identifierValue(item.as);
       if (alias && item.expr?.ast)
-        relations.set(
-          alias.toLowerCase(),
-          projectedColumnNames(item.expr.ast),
-        );
+        relations.set(alias.toLowerCase(), projectedColumnNames(item.expr.ast));
     }
   });
   return relations;
@@ -156,13 +153,63 @@ function applyRowLimit(ast: AstNode, maxRows: number) {
 export type GroundedSqlScope = Pick<
   MetadataContext,
   "tables" | "relationships"
->;
+> & { dataSourceType?: "MYSQL" | "ORACLE" };
+
+function validateOracleGroundedReadOnlySql(
+  sql: string,
+  scope: GroundedSqlScope,
+  maxRows: number,
+) {
+  const base = validateOracleReadOnlySql(sql);
+  if (!base.ok) return base;
+  const allowedTables = new Map(
+    scope.tables.map((table) => [
+      `${table.schema.toLowerCase()}.${table.name.toLowerCase()}`,
+      table,
+    ]),
+  );
+  const referencedTables: string[] = [];
+  const tablePattern =
+    /\b(?:from|join)\s+(?:"([^"]+)"|([A-Za-z][A-Za-z0-9_$#]*))\s*\.\s*(?:"([^"]+)"|([A-Za-z][A-Za-z0-9_$#]*))/gi;
+  for (const match of base.data.sql.matchAll(tablePattern)) {
+    const schema = match[1] ?? match[2];
+    const table = match[3] ?? match[4];
+    const key = `${schema.toLowerCase()}.${table.toLowerCase()}`;
+    if (!allowedTables.has(key))
+      return failure(
+        "QUERY_VALIDATION_FAILED",
+        "The query references a table outside the approved analysis scope.",
+        { diagnostics: { invalidTable: `${schema}.${table}` } },
+      );
+    referencedTables.push(key);
+  }
+  if (!referencedTables.length)
+    return failure(
+      "QUERY_VALIDATION_FAILED",
+      "Oracle queries must reference a schema-qualified approved table.",
+    );
+  const fetch = /\s+fetch\s+first\s+(\d+)\s+rows?\s+only\s*$/i;
+  const existing = base.data.sql.match(fetch);
+  const sqlWithLimit = existing
+    ? base.data.sql.replace(
+        fetch,
+        ` FETCH FIRST ${Math.min(Number(existing[1]), maxRows)} ROWS ONLY`,
+      )
+    : `${base.data.sql} FETCH FIRST ${maxRows} ROWS ONLY`;
+  return success({
+    sql: sqlWithLimit,
+    tables: [...new Set(referencedTables)],
+    columns: [],
+  });
+}
 
 export function validateGroundedReadOnlySql(
   sql: string,
   scope: GroundedSqlScope,
   maxRows: number,
 ) {
+  if (scope.dataSourceType === "ORACLE")
+    return validateOracleGroundedReadOnlySql(sql, scope, maxRows);
   const base = validateReadOnlySql(sql);
   if (!base.ok) return base;
   try {
@@ -243,9 +290,7 @@ export function validateGroundedReadOnlySql(
       }
       if (
         reference.owner &&
-        virtualColumns
-          .get(reference.owner.toLowerCase())
-          ?.has(columnName)
+        virtualColumns.get(reference.owner.toLowerCase())?.has(columnName)
       )
         continue;
       if (reference.owner) {

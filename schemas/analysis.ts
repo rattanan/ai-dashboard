@@ -27,7 +27,7 @@ export const metadataRelationshipContextSchema = z.object({
 
 export const metadataContextSchema = z.object({
   version: z.literal(1),
-  dataSourceType: z.literal("MYSQL"),
+  dataSourceType: z.enum(["MYSQL", "ORACLE"]),
   dataSourceName: z.string(),
   tables: z.array(metadataTableContextSchema),
   relationships: z.array(metadataRelationshipContextSchema),

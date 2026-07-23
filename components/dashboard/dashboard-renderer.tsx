@@ -227,11 +227,20 @@ export function prepareReorderRiskRows(
 }
 
 function compactAxisLabel(value: unknown, maxLength = 24) {
-  const label = String(value ?? "");
+  const label = formatChartDateTime(value);
   const characters = Array.from(label);
   return characters.length > maxLength
     ? `${characters.slice(0, maxLength - 1).join("")}…`
     : label;
+}
+
+/** Keep source timestamps stable in charts while hiding seconds/milliseconds. */
+export function formatChartDateTime(value: unknown) {
+  const text = String(value ?? "");
+  const match = text.match(
+    /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})?$/,
+  );
+  return match?.[1] ?? text;
 }
 
 function numeric(value: unknown) {
@@ -1009,7 +1018,10 @@ function CartesianWidget({
     ),
   }));
   const tooltip = (
-    <Tooltip formatter={(value) => formatValue(value, definition)} />
+    <Tooltip
+      formatter={(value) => formatValue(value, definition)}
+      labelFormatter={formatChartDateTime}
+    />
   );
   const legend = definition.visualization.showLegend ? <Legend /> : null;
   if (!data.length)
@@ -1059,7 +1071,12 @@ function CartesianWidget({
   const axes = (
     <>
       <CartesianGrid strokeDasharray="3 3" vertical={false} />
-      <XAxis dataKey={x} tick={{ fontSize: 11 }} minTickGap={24} />
+      <XAxis
+        dataKey={x}
+        tick={{ fontSize: 11 }}
+        tickFormatter={compactAxisLabel}
+        minTickGap={24}
+      />
       <YAxis tick={{ fontSize: 11 }} />
       {tooltip}
       {legend}
@@ -1326,7 +1343,11 @@ function WaterfallWidget({ definition, rows }: WidgetProps) {
     <ChartFrame label={definition.title}>
       <BarChart data={data} accessibilityLayer>
         <CartesianGrid strokeDasharray="3 3" vertical={false} />
-        <XAxis dataKey={category} tick={{ fontSize: 11 }} />
+        <XAxis
+          dataKey={category}
+          tick={{ fontSize: 11 }}
+          tickFormatter={compactAxisLabel}
+        />
         <YAxis tick={{ fontSize: 11 }} />
         <Tooltip
           formatter={(_, name, item) =>
@@ -1372,7 +1393,11 @@ function RadarWidget({ definition, rows }: WidgetProps) {
     <ChartFrame label={definition.title}>
       <RadarChart data={data} accessibilityLayer>
         <PolarGrid />
-        <PolarAngleAxis dataKey={category} tick={{ fontSize: 11 }} />
+        <PolarAngleAxis
+          dataKey={category}
+          tick={{ fontSize: 11 }}
+          tickFormatter={compactAxisLabel}
+        />
         <Radar
           dataKey={value}
           stroke={palette(definition)[0]}

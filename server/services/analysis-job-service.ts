@@ -146,22 +146,37 @@ export async function createAnalysisJob(
       "Phase 1 analysis requires exactly one data source.",
     );
   const source = dashboard.dataSources[0].dataSource;
-  if (source.type !== "MYSQL")
+  if (source.type !== "MYSQL" && source.type !== "ORACLE")
     return failure(
       "CONNECTOR_NOT_IMPLEMENTED",
-      "Phase 1 live analysis currently supports MySQL only.",
+      "Phase 1 live analysis supports MySQL and Oracle data sources.",
     );
   if (source.status !== "CONNECTED")
     return failure(
       "ANALYSIS_SCOPE_INVALID",
-      "Test the MySQL connection successfully before analysis.",
+      "Test the database connection successfully before analysis.",
     );
-  const selectedTables = source.schemas.flatMap((schema) =>
+  let selectedTables = source.schemas.flatMap((schema) =>
     schema.tables.map((table) => ({
       id: table.id,
       name: `${schema.name}.${table.name}`,
     })),
   );
+  if (!selectedTables.length && source.type === "ORACLE") {
+    await db.dataSourceTable.updateMany({
+      where: { schema: { dataSourceId: source.id } },
+      data: { selected: true },
+    });
+    const discoveredTables = await db.dataSourceTable.findMany({
+      where: { schema: { dataSourceId: source.id } },
+      include: { schema: { select: { name: true } } },
+      orderBy: [{ schema: { name: "asc" } }, { name: "asc" }],
+    });
+    selectedTables = discoveredTables.map((table) => ({
+      id: table.id,
+      name: `${table.schema.name}.${table.name}`,
+    }));
+  }
   if (!selectedTables.length)
     return failure(
       "ANALYSIS_SCOPE_INVALID",
@@ -423,22 +438,39 @@ export async function retryAnalysisJob(
   context: AuthorizationContext,
   analysisJobId: string,
 ) {
-  const updated = await db.analysisJob.updateMany({
+  const failedJob = await db.analysisJob.findFirst({
     where: {
       id: analysisJobId,
       workspaceId: context.workspaceId,
       status: "FAILED",
     },
-    data: {
-      status: "QUEUED",
-      failedAt: null,
-      errorCode: null,
-      errorMessage: null,
-      lastHeartbeatAt: null,
-    },
+    select: { id: true, errorCode: true },
   });
-  if (!updated.count)
+  if (!failedJob)
     return failure("CONFLICT", "Only a failed analysis job can be retried.");
+  const rebuildMetadata = failedJob.errorCode === "AI_PROVIDER_ERROR";
+  await db.$transaction(async (transaction) => {
+    if (rebuildMetadata)
+      await transaction.analysisArtifact.deleteMany({
+        where: { analysisJobId: failedJob.id },
+      });
+    await transaction.analysisJob.update({
+      where: { id: failedJob.id },
+      data: {
+        status: "QUEUED",
+        failedAt: null,
+        errorCode: null,
+        errorMessage: null,
+        lastHeartbeatAt: null,
+        ...(rebuildMetadata
+          ? {
+              currentStage: "PREPARING_METADATA",
+              progressPercent: STAGE_PROGRESS.PREPARING_METADATA,
+            }
+          : {}),
+      },
+    });
+  });
   const job = await db.analysisJob.findUniqueOrThrow({
     where: { id: analysisJobId },
   });

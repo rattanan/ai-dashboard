@@ -139,83 +139,91 @@ export async function discoverDataSource(
     if (!columns.ok) return columns;
     if (!relationships.ok) return relationships;
 
-    await db.$transaction(async (tx) => {
-      await tx.dataSourceSchema.deleteMany({
-        where: { dataSourceId: source.id },
-      });
-      const tableIds = new Map<string, string>();
-      for (const schema of schemasToScan) {
-        const createdSchema = await tx.dataSourceSchema.create({
-          data: { dataSourceId: source.id, name: schema.name },
+    await db.$transaction(
+      async (tx) => {
+        await tx.dataSourceSchema.deleteMany({
+          where: { dataSourceId: source.id },
         });
-        for (const table of tables.data.filter(
-          (item) => item.schemaName === schema.name,
-        )) {
-          const createdTable = await tx.dataSourceTable.create({
-            data: {
-              schemaId: createdSchema.id,
-              name: table.name,
-              tableType: table.tableType,
-              estimatedRowCount: table.estimatedRowCount,
-            },
+        const tableIds = new Map<string, string>();
+        for (const schema of schemasToScan) {
+          const createdSchema = await tx.dataSourceSchema.create({
+            data: { dataSourceId: source.id, name: schema.name },
           });
-          tableIds.set(`${schema.name}.${table.name}`, createdTable.id);
-          const tableColumns = columns.data.filter(
-            (item) =>
-              item.schemaName === schema.name && item.tableName === table.name,
+          for (const table of tables.data.filter(
+            (item) => item.schemaName === schema.name,
+          )) {
+            const createdTable = await tx.dataSourceTable.create({
+              data: {
+                schemaId: createdSchema.id,
+                name: table.name,
+                tableType: table.tableType,
+                estimatedRowCount: table.estimatedRowCount,
+                selected: source.type === "ORACLE",
+              },
+            });
+            tableIds.set(`${schema.name}.${table.name}`, createdTable.id);
+            const tableColumns = columns.data.filter(
+              (item) =>
+                item.schemaName === schema.name &&
+                item.tableName === table.name,
+            );
+            if (tableColumns.length)
+              await tx.dataSourceColumn.createMany({
+                data: tableColumns.map((column) => ({
+                  tableId: createdTable.id,
+                  name: column.name,
+                  dataType: column.dataType,
+                  ordinal: column.ordinal,
+                  nullable: column.nullable,
+                  primaryKey: column.primaryKey,
+                  defaultValue: column.defaultValue,
+                })),
+              });
+          }
+        }
+        for (const relation of relationships.data) {
+          const fromTableId = tableIds.get(
+            `${relation.fromSchema}.${relation.fromTable}`,
           );
-          if (tableColumns.length)
-            await tx.dataSourceColumn.createMany({
-              data: tableColumns.map((column) => ({
-                tableId: createdTable.id,
-                name: column.name,
-                dataType: column.dataType,
-                ordinal: column.ordinal,
-                nullable: column.nullable,
-                primaryKey: column.primaryKey,
-                defaultValue: column.defaultValue,
-              })),
+          const toTableId = tableIds.get(
+            `${relation.toSchema}.${relation.toTable}`,
+          );
+          if (fromTableId && toTableId)
+            await tx.dataSourceRelationship.create({
+              data: {
+                name: relation.name,
+                fromTableId,
+                fromColumnName: relation.fromColumn,
+                toTableId,
+                toColumnName: relation.toColumn,
+              },
             });
         }
-      }
-      for (const relation of relationships.data) {
-        const fromTableId = tableIds.get(
-          `${relation.fromSchema}.${relation.fromTable}`,
-        );
-        const toTableId = tableIds.get(
-          `${relation.toSchema}.${relation.toTable}`,
-        );
-        if (fromTableId && toTableId)
-          await tx.dataSourceRelationship.create({
-            data: {
-              name: relation.name,
-              fromTableId,
-              fromColumnName: relation.fromColumn,
-              toTableId,
-              toColumnName: relation.toColumn,
+        await tx.dataSource.update({
+          where: { id: source.id },
+          data: { lastDiscoveredAt: new Date() },
+        });
+        await tx.auditLog.create({
+          data: {
+            organizationId: context.organizationId,
+            workspaceId: context.workspaceId,
+            actorId: context.userId,
+            action: "METADATA_DISCOVERED",
+            entityType: "DataSource",
+            entityId: source.id,
+            metadata: {
+              schemas: schemasToScan.length,
+              tables: tables.data.length,
+              columns: columns.data.length,
             },
-          });
-      }
-      await tx.dataSource.update({
-        where: { id: source.id },
-        data: { lastDiscoveredAt: new Date() },
-      });
-      await tx.auditLog.create({
-        data: {
-          organizationId: context.organizationId,
-          workspaceId: context.workspaceId,
-          actorId: context.userId,
-          action: "METADATA_DISCOVERED",
-          entityType: "DataSource",
-          entityId: source.id,
-          metadata: {
-            schemas: schemasToScan.length,
-            tables: tables.data.length,
-            columns: columns.data.length,
           },
-        },
-      });
-    });
+        });
+      },
+      // Oracle schemas can contain thousands of objects/columns. Persisting
+      // governed metadata is intentionally bounded but needs longer than the
+      // Prisma interactive transaction default of five seconds.
+      { maxWait: 10_000, timeout: 300_000 },
+    );
     return success({
       schemas: schemasToScan.length,
       tables: tables.data.length,

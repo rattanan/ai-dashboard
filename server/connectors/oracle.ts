@@ -121,6 +121,13 @@ export class OracleConnector implements DataConnector {
   private parsed() {
     return configSchema.parse(this.configuration);
   }
+  private usesCurrentUserSchema() {
+    const value = this.parsed();
+    return (
+      !value.oracle.schema ||
+      value.oracle.schema.toUpperCase() === value.username.toUpperCase()
+    );
+  }
   private async pool() {
     const value = this.parsed();
     const key =
@@ -187,6 +194,9 @@ export class OracleConnector implements DataConnector {
     });
   }
   async listSchemas() {
+    const configuredSchema = this.parsed().oracle.schema;
+    if (configuredSchema)
+      return success([{ name: configuredSchema.toUpperCase() }]);
     return this.withConnection("listSchemas", async (connection) => {
       const result = await connection.execute<{ NAME: string }>(
         "SELECT username AS name FROM all_users ORDER BY username",
@@ -198,6 +208,29 @@ export class OracleConnector implements DataConnector {
   }
   async listTables(schemaNames?: string[]) {
     return this.withConnection("listTables", async (connection) => {
+      if (this.usesCurrentUserSchema()) {
+        const owner = this.parsed().username.toUpperCase();
+        const result = await connection.execute<{
+          NAME: string;
+          TABLE_TYPE: string;
+          NUM_ROWS: number | null;
+        }>(
+          "SELECT table_name AS name, 'TABLE' AS table_type, num_rows FROM user_tables UNION ALL SELECT view_name AS name, 'VIEW' AS table_type, CAST(NULL AS NUMBER) AS num_rows FROM user_views ORDER BY name",
+          [],
+          { outFormat: oracledb.OUT_FORMAT_OBJECT },
+        );
+        return (result.rows ?? []).map((row) => {
+          const tableType: "VIEW" | "TABLE" =
+            row.TABLE_TYPE === "VIEW" ? "VIEW" : "TABLE";
+          return {
+            schemaName: owner,
+            name: String(row.NAME),
+            tableType,
+            estimatedRowCount:
+              row.NUM_ROWS == null ? null : BigInt(row.NUM_ROWS),
+          };
+        });
+      }
       const schemas = schemaNames?.length
         ? schemaNames
         : [this.parsed().oracle.schema ?? this.parsed().username.toUpperCase()];
@@ -226,6 +259,27 @@ export class OracleConnector implements DataConnector {
   }
   async listColumns(schemaNames?: string[]) {
     return this.withConnection("listColumns", async (connection) => {
+      if (this.usesCurrentUserSchema()) {
+        const owner = this.parsed().username.toUpperCase();
+        const sql =
+          "SELECT c.table_name, c.column_name, c.data_type, c.data_length, c.data_precision, c.data_scale, c.column_id, c.nullable, c.data_default, CASE WHEN pk.column_name IS NULL THEN 0 ELSE 1 END AS primary_key FROM user_tab_columns c LEFT JOIN (SELECT acc.table_name, acc.column_name FROM user_constraints ac JOIN user_cons_columns acc ON ac.constraint_name = acc.constraint_name WHERE ac.constraint_type = 'P') pk ON pk.table_name = c.table_name AND pk.column_name = c.column_name ORDER BY c.table_name, c.column_id";
+        const result = await connection.execute<Record<string, unknown>>(
+          sql,
+          [],
+          { outFormat: oracledb.OUT_FORMAT_OBJECT },
+        );
+        return (result.rows ?? []).map((row) => ({
+          schemaName: owner,
+          tableName: String(row.TABLE_NAME),
+          name: String(row.COLUMN_NAME),
+          dataType: `${String(row.DATA_TYPE)}${row.DATA_PRECISION != null ? `(${row.DATA_PRECISION}${row.DATA_SCALE != null ? `,${row.DATA_SCALE}` : ""})` : row.DATA_LENGTH != null ? `(${row.DATA_LENGTH})` : ""}`,
+          ordinal: Number(row.COLUMN_ID),
+          nullable: row.NULLABLE === "Y",
+          primaryKey: Number(row.PRIMARY_KEY) === 1,
+          defaultValue:
+            row.DATA_DEFAULT == null ? null : String(row.DATA_DEFAULT).trim(),
+        }));
+      }
       const schemas = schemaNames?.length
         ? schemaNames
         : [this.parsed().oracle.schema ?? this.parsed().username.toUpperCase()];
@@ -254,6 +308,25 @@ export class OracleConnector implements DataConnector {
   }
   async listRelationships(schemaNames?: string[]) {
     return this.withConnection("listRelationships", async (connection) => {
+      if (this.usesCurrentUserSchema()) {
+        const owner = this.parsed().username.toUpperCase();
+        const sql =
+          "SELECT fk.constraint_name, fk.table_name AS from_table, fkc.column_name AS from_column, pk.table_name AS to_table, pkc.column_name AS to_column FROM user_constraints fk JOIN user_cons_columns fkc ON fk.constraint_name = fkc.constraint_name JOIN user_constraints pk ON fk.r_constraint_name = pk.constraint_name JOIN user_cons_columns pkc ON pk.constraint_name = pkc.constraint_name AND pkc.position = fkc.position WHERE fk.constraint_type = 'R' ORDER BY fk.table_name, fk.constraint_name, fkc.position";
+        const result = await connection.execute<Record<string, unknown>>(
+          sql,
+          [],
+          { outFormat: oracledb.OUT_FORMAT_OBJECT },
+        );
+        return (result.rows ?? []).map((row) => ({
+          name: String(row.CONSTRAINT_NAME),
+          fromSchema: owner,
+          fromTable: String(row.FROM_TABLE),
+          fromColumn: String(row.FROM_COLUMN),
+          toSchema: owner,
+          toTable: String(row.TO_TABLE),
+          toColumn: String(row.TO_COLUMN),
+        }));
+      }
       const schemas = schemaNames?.length
         ? schemaNames
         : [this.parsed().oracle.schema ?? this.parsed().username.toUpperCase()];

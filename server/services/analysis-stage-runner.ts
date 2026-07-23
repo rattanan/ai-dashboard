@@ -219,7 +219,7 @@ async function recommendKpisStage(
     ),
     systemPrompt: GROUNDING_SYSTEM_PROMPT,
     userPrompt: metadataTaskPrompt(
-      "Recommend only KPIs supported by type-compatible approved columns. Include useful date/category filterableDimensions and return those dimensions as stable aliases in proposed SQL whenever the analytical grain permits, so dashboard widgets can filter real query results. Each proposed MySQL query must join tables only through the exact fromTable.fromColumn and toTable.toColumn pairs in approved relationships. When two tables have no direct relationship, use an approved bridge path or omit that KPI. Return real supporting data. Prefer KPI queries that support trends, comparisons, distributions, funnels, targets, and exception monitoring over scalar totals only.",
+      `Recommend only KPIs supported by type-compatible approved columns. Include useful date/category filterableDimensions and return those dimensions as stable aliases in proposed SQL whenever the analytical grain permits, so dashboard widgets can filter real query results. Each proposed ${metadata.data.context.dataSourceType === "ORACLE" ? "Oracle" : "MySQL"} query must join tables only through the exact fromTable.fromColumn and toTable.toColumn pairs in approved relationships. When two tables have no direct relationship, use an approved bridge path or omit that KPI. ${metadata.data.context.dataSourceType === "ORACLE" ? "Use Oracle SELECT syntax, double-quote every schema, table, and column identifier exactly as supplied, and use FETCH FIRST n ROWS ONLY instead of LIMIT." : ""} Return real supporting data. Prefer KPI queries that support trends, comparisons, distributions, funnels, targets, and exception monitoring over scalar totals only.`,
       JSON.stringify({
         metadata: metadata.data.context,
         schemaAnalysis: schemaAnalysis.data,
@@ -250,7 +250,7 @@ async function recommendKpisStage(
         outputSchema: sqlRepairSchema,
         systemPrompt: GROUNDING_SYSTEM_PROMPT,
         userPrompt: metadataTaskPrompt(
-          `Repair the proposed MySQL SELECT for KPI ${candidate.id} without changing its business meaning. Validation code: ${grounded.error.code}. Validation message: ${grounded.error.message}. Repair attempt ${repairAttempt} of 2. Every JOIN must use an exact approved relationship column pair; use an approved bridge table when required. Original SQL: ${candidate.proposedSql}`,
+          `Repair the proposed ${metadata.data.context.dataSourceType === "ORACLE" ? "Oracle" : "MySQL"} SELECT for KPI ${candidate.id} without changing its business meaning. ${metadata.data.context.dataSourceType === "ORACLE" ? "Use double-quoted approved identifiers and FETCH FIRST n ROWS ONLY; never use LIMIT. " : ""}Validation code: ${grounded.error.code}. Validation message: ${grounded.error.message}. Repair attempt ${repairAttempt} of 2. Every JOIN must use an exact approved relationship column pair; use an approved bridge table when required. Original SQL: ${candidate.proposedSql}`,
           JSON.stringify(metadata.data.context),
         ),
         promptVersion: `kpi-sql-repair-v1-attempt-${repairAttempt}`,
@@ -371,7 +371,7 @@ async function validateQueriesStage(
         outputSchema: sqlRepairSchema,
         systemPrompt: GROUNDING_SYSTEM_PROMPT,
         userPrompt: metadataTaskPrompt(
-          `Repair this MySQL SELECT query. Validation code: ${validation.error.code}. Validation message: ${validation.error.message}. Repair attempt ${attempt} of 2. Original query: ${candidate}`,
+          `Repair this ${metadata.data.context.dataSourceType === "ORACLE" ? "Oracle" : "MySQL"} SELECT query. ${metadata.data.context.dataSourceType === "ORACLE" ? "Use double-quoted approved identifiers and FETCH FIRST n ROWS ONLY; never use LIMIT. " : ""}Validation code: ${validation.error.code}. Validation message: ${validation.error.message}. Repair attempt ${attempt} of 2. Original query: ${candidate}`,
           JSON.stringify(metadata.data.context),
         ),
         promptVersion: `sql-repair-v1-attempt-${attempt}`,
@@ -541,17 +541,17 @@ async function generateWidgetsStage(
       resultSchema: query.resultSchema,
     })),
   });
-  const generateWidgets = (qualityFeedback?: string) =>
+  const generateWidgets = (feedback?: string) =>
     generateCachedStructuredOutput(context, {
       requestId: crypto.randomUUID(),
       schemaName: "dashboard_widgets",
       outputSchema: widgetDefinitionsSchema(configuration.AI_MAX_WIDGETS),
       systemPrompt: GROUNDING_SYSTEM_PROMPT,
       userPrompt: metadataTaskPrompt(
-        `${DASHBOARD_DESIGN_PROMPT}\n\nCreate the accessible widget definitions for the approved plan. Map only fields present in each query result schema. For each applicable plan filter, add a widget filter binding whose field exists in that widget query result. Do not silently substitute visualization types.${qualityFeedback ? `\n\nThe previous composition failed quality validation. Correct every issue: ${qualityFeedback}` : ""}`,
+        `${DASHBOARD_DESIGN_PROMPT}\n\nCreate the accessible widget definitions for the approved plan. Map only fields present in each query result schema. For each applicable plan filter, add a widget filter binding whose field exists in that widget query result. Do not silently substitute visualization types.${feedback ? `\n\nThe previous widget definition failed validation. Correct every issue using exact result-schema field names: ${feedback}` : ""}`,
         widgetContext,
       ),
-      promptVersion: qualityFeedback
+      promptVersion: feedback
         ? `${PROMPT_VERSIONS.widgetDefinitions}-quality-repair`
         : PROMPT_VERSIONS.widgetDefinitions,
       onProgress: createJobHeartbeatReporter(job),
@@ -568,6 +568,26 @@ async function generateWidgetsStage(
       ]),
     ),
   );
+  for (
+    let repairAttempt = 1;
+    !groundedWidgets.ok && repairAttempt <= 2;
+    repairAttempt++
+  ) {
+    widgetResponse = await generateWidgets(
+      `${groundedWidgets.error.message} Repair attempt ${repairAttempt} of 2.`,
+    );
+    if (!widgetResponse.ok) return widgetResponse;
+    groundedWidgets = validateWidgetGrounding(
+      widgetResponse.data.data.widgets,
+      queryFieldMap(queries),
+      new Map(
+        groundedPlan.data.globalFilters.map((filter) => [
+          filter.id,
+          filter.control,
+        ]),
+      ),
+    );
+  }
   if (!groundedWidgets.ok) return groundedWidgets;
   let quality = validateDashboardQuality(
     groundedWidgets.data,

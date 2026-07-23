@@ -100,7 +100,7 @@ export function validateBusinessSchemaGrounding(
 }
 
 const NUMERIC_TYPE =
-  /^(tinyint|smallint|mediumint|int|integer|bigint|decimal|numeric|float|double|real|bit)/i;
+  /^(tinyint|smallint|mediumint|int|integer|bigint|decimal|numeric|float|double|real|bit|number|binary_float|binary_double)/i;
 const TEMPORAL_TYPE = /^(date|datetime|timestamp|time|year)/i;
 
 export function validateKpiGrounding(
@@ -230,6 +230,7 @@ export function validateWidgetGrounding(
   approvedFilters?: Map<string, "SELECT" | "MULTI_SELECT" | "DATE_RANGE">,
 ) {
   const ids = new Set<string>();
+  const groundedWidgets: DashboardWidgetDefinition[] = [];
   for (const widget of widgets) {
     if (ids.has(widget.id))
       return failure(
@@ -254,34 +255,75 @@ export function validateWidgetGrounding(
         "AI_INVALID_RESPONSE",
         "A widget references an unknown query definition.",
       );
+    // Oracle returns unquoted aliases in uppercase while AI plans commonly use
+    // lowercase aliases. Preserve the actual result-schema casing for runtime
+    // field lookup, but validate aliases case-insensitively.
+    const canonicalFields = new Map(
+      [...fields].map((field) => [field.toLowerCase(), field]),
+    );
+    const canonical = (field: string | undefined) =>
+      field ? (canonicalFields.get(field.toLowerCase()) ?? field) : field;
+    const canonicalRequired = (field: string) => canonical(field) ?? field;
+    const normalizedWidget: DashboardWidgetDefinition = {
+      ...widget,
+      dataMapping: {
+        ...widget.dataMapping,
+        dimensions: widget.dataMapping.dimensions.map(canonicalRequired),
+        measures: widget.dataMapping.measures.map(canonicalRequired),
+      },
+      visualization: {
+        ...widget.visualization,
+        xField: canonical(widget.visualization.xField),
+        yField: canonical(widget.visualization.yField),
+        categoryField: canonical(widget.visualization.categoryField),
+        valueField: canonical(widget.visualization.valueField),
+        seriesField: canonical(widget.visualization.seriesField),
+        previousValueField: canonical(widget.visualization.previousValueField),
+        targetField: canonical(widget.visualization.targetField),
+        maximumField: canonical(widget.visualization.maximumField),
+        statusField: canonical(widget.visualization.statusField),
+        stageField: canonical(widget.visualization.stageField),
+        startField: canonical(widget.visualization.startField),
+        endField: canonical(widget.visualization.endField),
+        sourceField: canonical(widget.visualization.sourceField),
+        targetNodeField: canonical(widget.visualization.targetNodeField),
+        latitudeField: canonical(widget.visualization.latitudeField),
+        longitudeField: canonical(widget.visualization.longitudeField),
+      },
+      filters: widget.filters?.map((filter) => ({
+        ...filter,
+        field: canonical(filter.field)!,
+      })),
+    };
     const mappedFields = [
-      ...widget.dataMapping.dimensions,
-      ...widget.dataMapping.measures,
-      widget.visualization.xField,
-      widget.visualization.yField,
-      widget.visualization.categoryField,
-      widget.visualization.valueField,
-      widget.visualization.seriesField,
-      widget.visualization.previousValueField,
-      widget.visualization.targetField,
-      widget.visualization.maximumField,
-      widget.visualization.statusField,
-      widget.visualization.stageField,
-      widget.visualization.startField,
-      widget.visualization.endField,
-      widget.visualization.sourceField,
-      widget.visualization.targetNodeField,
-      widget.visualization.latitudeField,
-      widget.visualization.longitudeField,
-      ...(widget.filters?.map((filter) => filter.field) ?? []),
+      ...normalizedWidget.dataMapping.dimensions,
+      ...normalizedWidget.dataMapping.measures,
+      normalizedWidget.visualization.xField,
+      normalizedWidget.visualization.yField,
+      normalizedWidget.visualization.categoryField,
+      normalizedWidget.visualization.valueField,
+      normalizedWidget.visualization.seriesField,
+      normalizedWidget.visualization.previousValueField,
+      normalizedWidget.visualization.targetField,
+      normalizedWidget.visualization.maximumField,
+      normalizedWidget.visualization.statusField,
+      normalizedWidget.visualization.stageField,
+      normalizedWidget.visualization.startField,
+      normalizedWidget.visualization.endField,
+      normalizedWidget.visualization.sourceField,
+      normalizedWidget.visualization.targetNodeField,
+      normalizedWidget.visualization.latitudeField,
+      normalizedWidget.visualization.longitudeField,
+      ...(normalizedWidget.filters?.map((filter) => filter.field) ?? []),
     ].filter((field): field is string => Boolean(field));
     if (mappedFields.some((field) => !fields.has(field)))
       return failure(
         "AI_INVALID_RESPONSE",
         "A widget maps a field that is absent from its validated query result.",
       );
+    groundedWidgets.push(normalizedWidget);
   }
-  return success(widgets);
+  return success(groundedWidgets);
 }
 
 export function validateInsightGrounding(

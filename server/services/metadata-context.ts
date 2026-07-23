@@ -36,6 +36,7 @@ export type MetadataRelationshipSnapshot = {
 
 export type MetadataContextInput = {
   dataSourceName: string;
+  dataSourceType?: "MYSQL" | "ORACLE";
   tables: MetadataTableSnapshot[];
   relationships: MetadataRelationshipSnapshot[];
   businessObjective: MetadataContext["businessObjective"];
@@ -51,6 +52,12 @@ export type MetadataContextLimits = {
   sendSampleData: boolean;
   maskSensitiveData: boolean;
 };
+
+const MAX_REPORTED_OMITTED_TABLES = 100;
+// Structured-output providers must reserve context for the response schema and
+// generated recommendations. Keep the metadata payload conservative even when
+// the provider advertises a larger raw context window.
+export const STRUCTURED_AI_METADATA_MAX_CHARACTERS = 40_000;
 
 type SampleLoader = (
   table: MetadataTableSnapshot,
@@ -144,6 +151,27 @@ function enforceCharacterLimit(
     context.scopeReduction.warnings.push(
       "Additional columns were summarized to satisfy the configured context size limit.",
     );
+  let tablesReduced = false;
+  while (
+    serializedLength(context) > maxCharacters &&
+    context.tables.length > 1
+  ) {
+    const omitted = context.tables.pop();
+    if (!omitted) break;
+    if (
+      context.scopeReduction.omittedTables.length < MAX_REPORTED_OMITTED_TABLES
+    )
+      context.scopeReduction.omittedTables.push(
+        `${omitted.schema}.${omitted.name}`,
+      );
+    tablesReduced = true;
+  }
+  if (tablesReduced) {
+    context.scopeReduction.includedTableCount = context.tables.length;
+    context.scopeReduction.warnings.push(
+      "Additional tables were omitted to satisfy the configured AI context size limit.",
+    );
+  }
   context.scopeReduction.omittedColumns = context.tables
     .filter((table) => table.omittedColumnCount > 0)
     .map((table) => ({
@@ -159,13 +187,14 @@ export async function buildMetadataContext(
 ) {
   const ranked = rankTables(input);
   const included = ranked.slice(0, limits.maxTables);
-  const omittedTables = ranked
+  const allOmittedTables = ranked
     .slice(limits.maxTables)
     .map((table) => `${table.schema}.${table.name}`);
+  const omittedTables = allOmittedTables.slice(0, MAX_REPORTED_OMITTED_TABLES);
   const warnings: string[] = [];
-  if (omittedTables.length)
+  if (allOmittedTables.length)
     warnings.push(
-      `${omittedTables.length} selected table(s) were omitted by the configured AI table limit.`,
+      `${allOmittedTables.length} selected table(s) were omitted by the configured AI table limit.`,
     );
   if (!limits.sendSampleData)
     warnings.push("Sample data is disabled; analysis uses metadata only.");
@@ -213,7 +242,7 @@ export async function buildMetadataContext(
   );
   const context: MetadataContext = {
     version: 1,
-    dataSourceType: "MYSQL",
+    dataSourceType: input.dataSourceType ?? "MYSQL",
     dataSourceName: input.dataSourceName,
     tables,
     relationships: input.relationships.filter(
@@ -291,10 +320,10 @@ export async function buildMetadataContextForDashboard(
       "Phase 1 analysis requires exactly one data source.",
     );
   const source = dashboard.dataSources[0].dataSource;
-  if (source.type !== "MYSQL")
+  if (source.type !== "MYSQL" && source.type !== "ORACLE")
     return failure(
       "CONNECTOR_NOT_IMPLEMENTED",
-      "Phase 1 live analysis currently supports MySQL only.",
+      "Phase 1 live analysis supports MySQL and Oracle data sources.",
     );
   if (!dashboard.businessObjective)
     return failure(
@@ -321,6 +350,7 @@ export async function buildMetadataContextForDashboard(
     );
   const input: MetadataContextInput = {
     dataSourceName: source.name,
+    dataSourceType: source.type,
     tables: selectedTables.map((table) => ({
       id: table.id,
       schema: table.schema.name,
@@ -365,7 +395,10 @@ export async function buildMetadataContextForDashboard(
     maxColumnsPerTable: configuration.AI_MAX_COLUMNS_PER_TABLE,
     sampleRowsPerTable: configuration.AI_SAMPLE_ROWS_PER_TABLE,
     maxSampleCellLength: configuration.AI_MAX_SAMPLE_CELL_LENGTH,
-    maxContextCharacters: configuration.AI_MAX_CONTEXT_CHARACTERS,
+    maxContextCharacters: Math.min(
+      configuration.AI_MAX_CONTEXT_CHARACTERS,
+      STRUCTURED_AI_METADATA_MAX_CHARACTERS,
+    ),
     sendSampleData: configuration.AI_SEND_SAMPLE_DATA,
     maskSensitiveData: configuration.AI_MASK_SENSITIVE_DATA,
   };
