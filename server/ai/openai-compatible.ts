@@ -382,10 +382,12 @@ export class OpenAICompatibleProvider implements AIProvider {
       ],
       response_format: responseFormat,
     };
-    let repairAttempted = false;
-    const maximumAttempts =
-      this.configuration.maxRetries +
-      (this.configuration.supportsJsonSchema ? 0 : 1);
+    let repairAttempts = 0;
+    // Some OpenAI-compatible providers (including Gemini's compatibility
+    // endpoint) can accept a schema but still return enum/shape drift. Give
+    // the model two explicit repair turns regardless of its advertised mode.
+    const maxRepairAttempts = 2;
+    const maximumAttempts = this.configuration.maxRetries + maxRepairAttempts;
 
     for (let attempt = 0; attempt <= maximumAttempts; attempt++) {
       const startedAt = performance.now();
@@ -520,8 +522,8 @@ export class OpenAICompatibleProvider implements AIProvider {
             validationIssues: output.error.issues.length,
             validationPaths,
           });
-          if (!this.configuration.supportsJsonSchema && !repairAttempted) {
-            repairAttempted = true;
+          if (repairAttempts < maxRepairAttempts) {
+            repairAttempts += 1;
             body.messages = [
               ...body.messages,
               { role: "assistant", content: rawOutput },
@@ -535,6 +537,7 @@ export class OpenAICompatibleProvider implements AIProvider {
               provider: this.name,
               model: this.model,
               validationIssues: output.error.issues.length,
+              repairAttempt: repairAttempts,
             });
             continue;
           }

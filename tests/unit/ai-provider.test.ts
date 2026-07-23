@@ -327,4 +327,45 @@ describe("OpenAI-compatible provider", () => {
     );
     expect(repairedBody.messages.at(-1).content).toContain("Validation issues");
   });
+
+  it("repairs schema drift twice even when a provider advertises JSON Schema", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({
+          choices: [{ message: { content: JSON.stringify({ summary: 42 }) } }],
+        }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          choices: [
+            { message: { content: JSON.stringify({ confidence: 0.8 }) } },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  summary: "Repaired twice",
+                  confidence: 0.8,
+                }),
+              },
+            },
+          ],
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await new OpenAICompatibleProvider({
+      ...configuration,
+      supportsJsonSchema: true,
+      maxRetries: 0,
+    }).generateStructuredOutput(request());
+
+    expect(result.ok).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
 });
