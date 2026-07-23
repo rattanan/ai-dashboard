@@ -107,7 +107,7 @@ describe("application schemas", () => {
     expect(result.AI_MASK_SENSITIVE_DATA).toBe(true);
     expect(result.AI_MAX_TABLES).toBe(12);
     expect(result.QUERY_MAX_ROWS).toBe(500);
-    expect(result.AI_STREAM_INACTIVITY_TIMEOUT_MS).toBe(60_000);
+    expect(result.AI_STREAM_INACTIVITY_TIMEOUT_MS).toBe(180_000);
   });
   it("enforces dashboard widget grid and review decisions", () => {
     expect(

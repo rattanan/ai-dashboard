@@ -54,13 +54,13 @@ export const envSchema = z.object({
     .int()
     .min(1_000)
     .max(300_000)
-    .default(60_000),
+    .default(180_000),
   AI_STREAM_INACTIVITY_TIMEOUT_MS: z.coerce
     .number()
     .int()
     .min(1_000)
     .max(300_000)
-    .default(60_000),
+    .default(180_000),
   AI_MAX_RETRIES: z.coerce.number().int().min(0).max(5).default(2),
   AI_TEMPERATURE: z.coerce.number().min(0).max(2).default(0.1),
   AI_MAX_TABLES: z.coerce.number().int().min(1).max(100).default(30),
