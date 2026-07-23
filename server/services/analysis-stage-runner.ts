@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto";
 import { Prisma, type AnalysisJob } from "@/generated/prisma/client";
-import type { KPIRecommendation, MetadataContext } from "@/schemas/analysis";
+import type {
+  DashboardWidgetDefinition,
+  KPIRecommendation,
+  MetadataContext,
+} from "@/schemas/analysis";
 import type { AuthorizationContext } from "@/server/auth/authorization";
 import { db } from "@/server/db";
 import {
@@ -297,7 +301,11 @@ async function recommendKpisStage(
       metadata.data.context,
       configuration.QUERY_MAX_ROWS,
     );
-    for (let repairAttempt = 1; !grounded.ok && repairAttempt <= 2; repairAttempt++) {
+    for (
+      let repairAttempt = 1;
+      !grounded.ok && repairAttempt <= 2;
+      repairAttempt++
+    ) {
       const repaired = await generateCachedStructuredOutput(context, {
         requestId: crypto.randomUUID(),
         schemaName: "kpi_recommendation_repair",
@@ -536,6 +544,40 @@ function queryFieldMap(
   );
 }
 
+function fallbackWidgetsForQueries(
+  queries: Array<{
+    id: string;
+    purpose: string;
+    resultSchema: Prisma.JsonValue | null;
+  }>,
+  maxWidgets: number,
+): DashboardWidgetDefinition[] {
+  const fieldsByQuery = queryFieldMap(queries);
+  return queries.slice(0, maxWidgets).map((query, index) => {
+    const fields = [...(fieldsByQuery.get(query.id) ?? new Set<string>())];
+    return {
+      id: `fallback-query-${index + 1}`,
+      type: "TABLE",
+      title: query.purpose.slice(0, 120),
+      description:
+        "Validated query preview shown because an AI widget mapping could not be grounded.",
+      businessQuestion: query.purpose,
+      visualizationReason:
+        "A table safely exposes only fields returned by the validated query.",
+      priority: index === 0 ? "PRIMARY" : "MEDIUM",
+      queryDefinitionId: query.id,
+      layout: { x: 0, y: index * 4, width: 12, height: 4 },
+      visualization: { palette: "BLUE", showLegend: false },
+      dataMapping: { dimensions: fields.slice(0, 10), measures: [] },
+      formatting: { displayFormat: "NUMBER", decimals: 0, compact: false },
+      emptyStateMessage: "The validated query returned no rows.",
+      limitations: [
+        "Fallback table used because AI-generated widget fields were not present in the validated query result.",
+      ],
+    };
+  });
+}
+
 async function generateWidgetsStage(
   context: AuthorizationContext,
   job: AnalysisJob,
@@ -658,7 +700,24 @@ async function generateWidgetsStage(
       ),
     );
   }
-  if (!groundedWidgets.ok) return groundedWidgets;
+  if (!groundedWidgets.ok) {
+    const fallbackWidgets = fallbackWidgetsForQueries(
+      queries,
+      configuration.AI_MAX_WIDGETS,
+    );
+    if (!fallbackWidgets.length) return groundedWidgets;
+    groundedWidgets = validateWidgetGrounding(
+      fallbackWidgets,
+      queryFieldMap(queries),
+      new Map(
+        groundedPlan.data.globalFilters.map((filter) => [
+          filter.id,
+          filter.control,
+        ]),
+      ),
+    );
+    if (!groundedWidgets.ok) return groundedWidgets;
+  }
   let quality = validateDashboardQuality(
     groundedWidgets.data,
     groundedPlan.data,
