@@ -11,6 +11,13 @@ import { failure, success } from "@/types/result";
 import { dataSourceRepository } from "@/server/repositories/data-sources";
 import { LocalObjectStorageService } from "@/server/storage/local-storage";
 
+function batches<T>(values: T[], size = 500) {
+  const result: T[][] = [];
+  for (let index = 0; index < values.length; index += size)
+    result.push(values.slice(index, index + size));
+  return result;
+}
+
 function encryptionService() {
   const config = env();
   return new AesGcmCredentialEncryptionService(
@@ -144,60 +151,84 @@ export async function discoverDataSource(
         await tx.dataSourceSchema.deleteMany({
           where: { dataSourceId: source.id },
         });
-        const tableIds = new Map<string, string>();
+        const schemaIds = new Map<string, string>();
         for (const schema of schemasToScan) {
           const createdSchema = await tx.dataSourceSchema.create({
             data: { dataSourceId: source.id, name: schema.name },
           });
-          for (const table of tables.data.filter(
-            (item) => item.schemaName === schema.name,
-          )) {
-            const createdTable = await tx.dataSourceTable.create({
-              data: {
-                schemaId: createdSchema.id,
-                name: table.name,
-                tableType: table.tableType,
-                estimatedRowCount: table.estimatedRowCount,
-              },
-            });
-            tableIds.set(`${schema.name}.${table.name}`, createdTable.id);
-            const tableColumns = columns.data.filter(
-              (item) =>
-                item.schemaName === schema.name &&
-                item.tableName === table.name,
-            );
-            if (tableColumns.length)
-              await tx.dataSourceColumn.createMany({
-                data: tableColumns.map((column) => ({
-                  tableId: createdTable.id,
+          schemaIds.set(schema.name, createdSchema.id);
+        }
+        for (const batch of batches(tables.data)) {
+          await tx.dataSourceTable.createMany({
+            data: batch.flatMap((table) => {
+              const schemaId = schemaIds.get(table.schemaName);
+              return schemaId
+                ? [
+                    {
+                      schemaId,
+                      name: table.name,
+                      tableType: table.tableType,
+                      estimatedRowCount: table.estimatedRowCount,
+                    },
+                  ]
+                : [];
+            }),
+          });
+        }
+        const persistedTables = await tx.dataSourceTable.findMany({
+          where: { schema: { dataSourceId: source.id } },
+          include: { schema: { select: { name: true } } },
+        });
+        const tableIds = new Map(
+          persistedTables.map((table) => [
+            `${table.schema.name}.${table.name}`,
+            table.id,
+          ]),
+        );
+        const columnRecords = columns.data.flatMap((column) => {
+          const tableId = tableIds.get(
+            `${column.schemaName}.${column.tableName}`,
+          );
+          return tableId
+            ? [
+                {
+                  tableId,
                   name: column.name,
                   dataType: column.dataType,
                   ordinal: column.ordinal,
                   nullable: column.nullable,
                   primaryKey: column.primaryKey,
                   defaultValue: column.defaultValue,
-                })),
-              });
-          }
-        }
-        for (const relation of relationships.data) {
+                },
+              ]
+            : [];
+        });
+        for (const batch of batches(columnRecords))
+          await tx.dataSourceColumn.createMany({ data: batch });
+        const relationshipRecords = relationships.data.flatMap((relation) => {
           const fromTableId = tableIds.get(
             `${relation.fromSchema}.${relation.fromTable}`,
           );
           const toTableId = tableIds.get(
             `${relation.toSchema}.${relation.toTable}`,
           );
-          if (fromTableId && toTableId)
-            await tx.dataSourceRelationship.create({
-              data: {
-                name: relation.name,
-                fromTableId,
-                fromColumnName: relation.fromColumn,
-                toTableId,
-                toColumnName: relation.toColumn,
-              },
-            });
-        }
+          return fromTableId && toTableId
+            ? [
+                {
+                  name: relation.name,
+                  fromTableId,
+                  fromColumnName: relation.fromColumn,
+                  toTableId,
+                  toColumnName: relation.toColumn,
+                },
+              ]
+            : [];
+        });
+        for (const batch of batches(relationshipRecords))
+          await tx.dataSourceRelationship.createMany({
+            data: batch,
+            skipDuplicates: true,
+          });
         await tx.dataSource.update({
           where: { id: source.id },
           data: { lastDiscoveredAt: new Date() },

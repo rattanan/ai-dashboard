@@ -30,7 +30,11 @@ export type CopilotReply = {
   generatedSql?: string;
   selectedWidgetId?: string;
   filters?: CopilotFilterSuggestion[];
-  action?: { type: "CHART_CHANGED"; widgetId: string; chartType: CopilotChartType };
+  action?: {
+    type: "CHART_CHANGED";
+    widgetId: string;
+    chartType: CopilotChartType;
+  };
   suggestions: string[];
   createdAt: string;
 };
@@ -49,7 +53,9 @@ function chartTypeFromPrompt(prompt: string): CopilotChartType | null {
   return null;
 }
 
-function datePresetFromPrompt(prompt: string): CopilotFilterSuggestion["datePreset"] {
+function datePresetFromPrompt(
+  prompt: string,
+): CopilotFilterSuggestion["datePreset"] {
   const normalized = prompt.toLowerCase();
   if (/\btoday\b/.test(normalized)) return "TODAY";
   if (/\byesterday\b/.test(normalized)) return "YESTERDAY";
@@ -67,6 +73,16 @@ function filterValueFromPrompt(prompt: string) {
     /(?:only\s+(?:show|for)|show\s+only|filter(?:\s+only)?\s+(?:for|to)?|hide)\s+(.+)/i,
   );
   return match?.[1]?.replace(/[.?!]+$/, "").trim() || null;
+}
+
+function topLimitFromPrompt(prompt: string) {
+  const match = prompt.match(/\btop\s+(\d{1,3})\b/i);
+  return match ? Math.min(Math.max(Number(match[1]), 1), 100) : null;
+}
+
+function numericValue(value: unknown) {
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 async function logCopilot(
@@ -137,7 +153,9 @@ export async function askCopilot(
   const dashboard = await db.dashboard.findFirst({
     where: { id: input.dashboardId, workspaceId: context.workspaceId },
     include: {
-      dataSources: { include: { dataSource: { select: { id: true, name: true } } } },
+      dataSources: {
+        include: { dataSource: { select: { id: true, name: true } } },
+      },
       widgets: { orderBy: { position: "asc" } },
       analysisJobs: {
         where: { status: "COMPLETED" },
@@ -146,7 +164,17 @@ export async function askCopilot(
         include: {
           queryDefinitions: {
             where: { validationStatus: "VALID" },
-            select: { id: true, sql: true, purpose: true },
+            select: {
+              id: true,
+              sql: true,
+              purpose: true,
+              executions: {
+                where: { status: "SUCCEEDED" },
+                orderBy: { completedAt: "desc" },
+                take: 1,
+                select: { previewRows: true },
+              },
+            },
           },
         },
       },
@@ -159,6 +187,7 @@ export async function askCopilot(
     : undefined;
   const prompt = input.prompt.trim();
   const chartType = chartTypeFromPrompt(prompt);
+  const topLimit = topLimitFromPrompt(prompt);
   const latestQueries = dashboard.analysisJobs[0]?.queryDefinitions ?? [];
   const selectedDefinition = dashboardWidgetDefinitionSchema.safeParse(
     selectedWidget &&
@@ -182,7 +211,9 @@ export async function askCopilot(
         intent: "EDIT_WIDGET",
         answer:
           "Select a chart first, then ask me to change its visualization. I will keep its validated data mapping unchanged.",
-        suggestions: ["Select a widget, then say “change this to a bar chart”."],
+        suggestions: [
+          "Select a widget, then say “change this to a bar chart”.",
+        ],
       };
       status = "NEEDS_SELECTION";
     } else if (!(await hasPermission(context, "dashboard.update"))) {
@@ -236,15 +267,73 @@ export async function askCopilot(
         answer: `Changed “${selectedWidget.title}” to ${chartType.replaceAll("_", " ").toLowerCase()}. The underlying validated query was not changed.`,
         selectedWidgetId: selectedWidget.id,
         generatedSql: selectedSql,
-        action: { type: "CHART_CHANGED", widgetId: selectedWidget.id, chartType },
-        suggestions: ["Explain this KPI", "Show the SQL", "Change this to a table"],
+        action: {
+          type: "CHART_CHANGED",
+          widgetId: selectedWidget.id,
+          chartType,
+        },
+        suggestions: [
+          "Explain this KPI",
+          "Show the SQL",
+          "Change this to a table",
+        ],
       };
       status = "APPLIED";
     }
   } else {
     const datePreset = datePresetFromPrompt(prompt);
     const filterValue = filterValueFromPrompt(prompt);
-    if (datePreset || filterValue) {
+    if (topLimit) {
+      const widget = selectedWidget ?? dashboard.widgets[0];
+      const definition = dashboardWidgetDefinitionSchema.safeParse(
+        widget &&
+          widget.config &&
+          typeof widget.config === "object" &&
+          "definition" in widget.config
+          ? widget.config.definition
+          : null,
+      );
+      const query = definition.success
+        ? latestQueries.find(
+            (item) => item.id === definition.data.queryDefinitionId,
+          )
+        : undefined;
+      const category = definition.data?.dataMapping.dimensions[0];
+      const measure = definition.data?.dataMapping.measures[0];
+      const rows = Array.isArray(query?.executions[0]?.previewRows)
+        ? (query.executions[0]?.previewRows as Record<string, unknown>[])
+        : [];
+      if (!widget || !definition.success || !query || !category || !measure) {
+        reply = {
+          intent: "QUESTION",
+          answer:
+            "Select a chart with a category and measure first, then ask for its top values.",
+          suggestions: ["Select a widget, then say “Show top 10”"],
+        };
+        status = "NEEDS_SELECTION";
+      } else {
+        const topRows = rows
+          .map((row) => ({
+            label: String(row[category] ?? "Unknown"),
+            value: numericValue(row[measure]),
+          }))
+          .filter(
+            (row): row is { label: string; value: number } => row.value != null,
+          )
+          .sort((left, right) => right.value - left.value)
+          .slice(0, topLimit);
+        reply = {
+          intent: "QUESTION",
+          answer: topRows.length
+            ? `Top ${topRows.length} for “${widget.title}” by ${measure}:\n${topRows.map((row, index) => `${index + 1}. ${row.label}: ${new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(row.value)}`).join("\n")}`
+            : `The latest validated result for “${widget.title}” has no numeric values for ${measure}.`,
+          selectedWidgetId: widget.id,
+          generatedSql: query.sql,
+          suggestions: ["Show the SQL", "Explain this KPI", "Show top 10"],
+        };
+        status = "TOP_VALUES";
+      }
+    } else if (datePreset || filterValue) {
       reply = {
         intent: "FILTER",
         answer: datePreset
@@ -256,7 +345,11 @@ export async function askCopilot(
         ],
         selectedWidgetId: selectedWidget?.id,
         generatedSql: selectedSql,
-        suggestions: ["Show top 10", "Compare this month with last month", "Reset filters"],
+        suggestions: [
+          "Show top 10",
+          "Compare this month with last month",
+          "Reset filters",
+        ],
       };
       status = "FILTER_APPLIED";
     } else if (/\b(why|explain|what is|how is)\b/i.test(prompt)) {
@@ -276,7 +369,11 @@ export async function askCopilot(
         answer: `I can help analyze “${dashboard.name}”. Select a widget for a grounded answer, ask for a date or category filter, or ask to change a selected chart. I only use validated dashboard queries.`,
         selectedWidgetId: selectedWidget?.id,
         generatedSql: selectedSql,
-        suggestions: ["Explain this KPI", "Show top 10", "Compare this month with last month"],
+        suggestions: [
+          "Explain this KPI",
+          "Show top 10",
+          "Compare this month with last month",
+        ],
       };
     }
   }
@@ -290,5 +387,9 @@ export async function askCopilot(
     finalAnswer: reply.answer,
     responseTimeMs: elapsed,
   });
-  return success({ ...reply, id: log.id, createdAt: log.createdAt.toISOString() });
+  return success({
+    ...reply,
+    id: log.id,
+    createdAt: log.createdAt.toISOString(),
+  });
 }
