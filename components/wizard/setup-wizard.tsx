@@ -787,11 +787,15 @@ export function SetupWizard({
                 disabled={pending || !source.schemas.length}
                 onClick={() =>
                   run(async () => {
-                    const result = await saveDataScopeAction(source.id, [
-                      ...(source.type === "ORACLE" && autoPrioritizeTables
-                        ? allTableIds
-                        : selectedTables),
-                    ]);
+                    const result = await saveDataScopeAction(
+                      source.id,
+                      [
+                        ...(source.type === "ORACLE" && autoPrioritizeTables
+                          ? allTableIds
+                          : selectedTables),
+                      ],
+                      autoPrioritizeTables,
+                    );
                     if (!result.ok) return setMessage(result.error.message);
                     go(6);
                   })

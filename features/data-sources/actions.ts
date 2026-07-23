@@ -20,6 +20,7 @@ import {
   deleteDataSource,
 } from "@/server/services/data-source-service";
 import { db } from "@/server/db";
+import type { Prisma } from "@/generated/prisma/client";
 import { logger } from "@/server/services/logger";
 import { createAnalysisJob } from "@/server/services/analysis-job-service";
 import { failure, success } from "@/types/result";
@@ -65,6 +66,7 @@ export async function deleteDataSourceAction(
 export async function saveDataScopeAction(
   dataSourceId: string,
   tableIds: string[],
+  autoPrioritizeTables = false,
 ) {
   const context = await requireAuthorization();
   await requirePermission(context, "datasource.update");
@@ -73,6 +75,12 @@ export async function saveDataScopeAction(
     where: { id: dataSourceId, workspaceId: context.workspaceId },
   });
   if (!source) return failure("NOT_FOUND", "Data source not found.");
+  const connectionOptions =
+    source.connectionOptions &&
+    typeof source.connectionOptions === "object" &&
+    !Array.isArray(source.connectionOptions)
+      ? source.connectionOptions
+      : {};
   await db.$transaction([
     db.dataSourceTable.updateMany({
       where: { schema: { dataSourceId } },
@@ -82,6 +90,19 @@ export async function saveDataScopeAction(
       where: { id: { in: tableIds }, schema: { dataSourceId } },
       data: { selected: true },
     }),
+    ...(source.type === "ORACLE"
+      ? [
+          db.dataSource.update({
+            where: { id: source.id },
+            data: {
+              connectionOptions: {
+                ...connectionOptions,
+                autoPrioritizeTables,
+              } as Prisma.InputJsonValue,
+            },
+          }),
+        ]
+      : []),
   ]);
   return success({ selected: tableIds.length });
 }
