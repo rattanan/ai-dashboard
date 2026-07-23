@@ -145,22 +145,47 @@ async function analyzeSchemaStage(
     onProgress: createJobHeartbeatReporter(job),
   });
   if (!response.ok) return response;
-  const grounded = validateBusinessSchemaGrounding(
-    response.data.data,
+  let output = response.data;
+  let grounded = validateBusinessSchemaGrounding(
+    output.data,
     metadata.data.context,
   );
+  for (
+    let repairAttempt = 1;
+    !grounded.ok && repairAttempt <= 2;
+    repairAttempt++
+  ) {
+    const repaired = await generateCachedStructuredOutput(context, {
+      requestId: crypto.randomUUID(),
+      schemaName: "business_schema_analysis_repair",
+      outputSchema: businessSchemaAnalysisSchema,
+      systemPrompt: GROUNDING_SYSTEM_PROMPT,
+      userPrompt: metadataTaskPrompt(
+        `Repair the schema analysis. ${grounded.error.message} Use only exact table and column references present in the approved context. Repair attempt ${repairAttempt} of 2.`,
+        JSON.stringify(metadata.data.context),
+      ),
+      promptVersion: `${PROMPT_VERSIONS.schemaAnalysis}-repair-${repairAttempt}`,
+      onProgress: createJobHeartbeatReporter(job),
+    });
+    if (!repaired.ok) return repaired;
+    output = repaired.data;
+    grounded = validateBusinessSchemaGrounding(
+      output.data,
+      metadata.data.context,
+    );
+  }
   if (!grounded.ok) return grounded;
   await persistArtifact({
     job,
     type: "SCHEMA_ANALYSIS",
     stage: "ANALYZING_SCHEMA",
     payload: grounded.data as Prisma.InputJsonValue,
-    inputHash: response.data.inputHash,
-    promptVersion: response.data.promptVersion,
-    provider: response.data.provider,
-    model: response.data.model,
-    inputTokens: response.data.usage?.inputTokens,
-    outputTokens: response.data.usage?.outputTokens,
+    inputHash: output.inputHash,
+    promptVersion: output.promptVersion,
+    provider: output.provider,
+    model: output.model,
+    inputTokens: output.usage?.inputTokens,
+    outputTokens: output.usage?.outputTokens,
   });
   return success({
     nextStage: "IDENTIFYING_BUSINESS_ENTITIES" as const,
