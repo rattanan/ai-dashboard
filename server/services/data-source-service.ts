@@ -158,7 +158,6 @@ export async function discoverDataSource(
                 name: table.name,
                 tableType: table.tableType,
                 estimatedRowCount: table.estimatedRowCount,
-                selected: source.type === "ORACLE",
               },
             });
             tableIds.set(`${schema.name}.${table.name}`, createdTable.id);

@@ -160,6 +160,9 @@ export function SetupWizard({
   const [oracleConnectionType, setOracleConnectionType] = useState<
     "service_name" | "sid"
   >("service_name");
+  const [autoPrioritizeTables, setAutoPrioritizeTables] = useState(
+    source?.type === "ORACLE",
+  );
   const [selectedTables, setSelectedTables] = useState(
     () =>
       new Set(
@@ -176,6 +179,10 @@ export function SetupWizard({
     () => ({ id: source?.id, dashboard: dashboard?.id, type: selectedType }),
     [source?.id, dashboard?.id, selectedType],
   );
+  const allTableIds =
+    source?.schemas.flatMap((schema) =>
+      schema.tables.map((table) => table.id),
+    ) ?? [];
   function go(next: number, overrides?: Record<string, string | undefined>) {
     const params = new URLSearchParams({
       step: String(next),
@@ -672,7 +679,33 @@ export function SetupWizard({
         >
           {source.type === "MYSQL" || source.type === "ORACLE" ? (
             <>
-              {source.schemas.length ? (
+              {source.type === "ORACLE" ? (
+                <label className="mb-5 flex cursor-pointer items-start gap-3 rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-950">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 size-5 accent-primary"
+                    checked={autoPrioritizeTables}
+                    onChange={(event) =>
+                      setAutoPrioritizeTables(event.target.checked)
+                    }
+                  />
+                  <span>
+                    <strong>Let AI prioritize important tables</strong>
+                    <span className="mt-1 block text-blue-800">
+                      The analysis will rank discovered Oracle objects using
+                      your dashboard objective, relationships, and columns. Turn
+                      this off to choose the scope yourself.
+                    </span>
+                  </span>
+                </label>
+              ) : null}
+              {source.type === "ORACLE" && autoPrioritizeTables ? (
+                <div className="rounded-lg border border-dashed bg-slate-50 p-6 text-sm text-muted-foreground">
+                  AI prioritization is enabled. All discovered objects will be
+                  available to the analysis, while only the most relevant ones
+                  are included in its bounded context.
+                </div>
+              ) : source.schemas.length ? (
                 <div className="space-y-3">
                   {source.schemas.map((schema) => (
                     <details key={schema.id} open className="rounded-lg border">
@@ -728,6 +761,25 @@ export function SetupWizard({
                   </div>
                 </div>
               )}
+              {source.schemas.length &&
+              !(source.type === "ORACLE" && autoPrioritizeTables) ? (
+                <div className="mt-4 flex flex-wrap gap-3">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setSelectedTables(new Set(allTableIds))}
+                  >
+                    Select all
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setSelectedTables(new Set())}
+                  >
+                    Clear all
+                  </Button>
+                </div>
+              ) : null}
               <Button
                 type="button"
                 variant="secondary"
@@ -736,7 +788,9 @@ export function SetupWizard({
                 onClick={() =>
                   run(async () => {
                     const result = await saveDataScopeAction(source.id, [
-                      ...selectedTables,
+                      ...(source.type === "ORACLE" && autoPrioritizeTables
+                        ? allTableIds
+                        : selectedTables),
                     ]);
                     if (!result.ok) return setMessage(result.error.message);
                     go(6);

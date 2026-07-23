@@ -156,27 +156,12 @@ export async function createAnalysisJob(
       "ANALYSIS_SCOPE_INVALID",
       "Test the database connection successfully before analysis.",
     );
-  let selectedTables = source.schemas.flatMap((schema) =>
+  const selectedTables = source.schemas.flatMap((schema) =>
     schema.tables.map((table) => ({
       id: table.id,
       name: `${schema.name}.${table.name}`,
     })),
   );
-  if (!selectedTables.length && source.type === "ORACLE") {
-    await db.dataSourceTable.updateMany({
-      where: { schema: { dataSourceId: source.id } },
-      data: { selected: true },
-    });
-    const discoveredTables = await db.dataSourceTable.findMany({
-      where: { schema: { dataSourceId: source.id } },
-      include: { schema: { select: { name: true } } },
-      orderBy: [{ schema: { name: "asc" } }, { name: "asc" }],
-    });
-    selectedTables = discoveredTables.map((table) => ({
-      id: table.id,
-      name: `${table.schema.name}.${table.name}`,
-    }));
-  }
   if (!selectedTables.length)
     return failure(
       "ANALYSIS_SCOPE_INVALID",
