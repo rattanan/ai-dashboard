@@ -455,12 +455,20 @@ export async function retryAnalysisJob(
   const rebuildMetadata = [
     "AI_PROVIDER_ERROR",
     "ANALYSIS_SCOPE_INVALID",
+    "AI_INVALID_RESPONSE",
   ].includes(failedJob.errorCode ?? "");
   await db.$transaction(async (transaction) => {
-    if (rebuildMetadata)
+    if (rebuildMetadata) {
+      await transaction.queryDefinition.deleteMany({
+        where: { analysisJobId: failedJob.id },
+      });
+      await transaction.analysisRecommendation.deleteMany({
+        where: { analysisJobId: failedJob.id },
+      });
       await transaction.analysisArtifact.deleteMany({
         where: { analysisJobId: failedJob.id },
       });
+    }
     await transaction.analysisJob.update({
       where: { id: failedJob.id },
       data: {

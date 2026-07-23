@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { Prisma, type AnalysisJob } from "@/generated/prisma/client";
+import type { KPIRecommendation, MetadataContext } from "@/schemas/analysis";
 import type { AuthorizationContext } from "@/server/auth/authorization";
 import { db } from "@/server/db";
 import {
@@ -44,6 +45,40 @@ import { getDataSourceConnector } from "./data-source-service";
 
 function contentHash(value: unknown) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+
+function quotedIdentifier(value: string, dataSourceType: "MYSQL" | "ORACLE") {
+  if (dataSourceType === "ORACLE") return `"${value.replaceAll('"', '""')}"`;
+  return `\`${value.replaceAll("`", "``")}\``;
+}
+
+/**
+ * A safe last resort when a provider cannot produce a grounded business KPI.
+ * COUNT(*) needs no inferred measure column, so it remains valid even when the
+ * metadata context had to omit columns to fit the model context window.
+ */
+function countFallbackKpi(context: MetadataContext): KPIRecommendation | null {
+  const table = context.tables[0];
+  if (!table) return null;
+  const tableReference = `${table.schema}.${table.name}`;
+  const source = `${quotedIdentifier(table.schema, context.dataSourceType)}.${quotedIdentifier(table.name, context.dataSourceType)}`;
+  return {
+    id: "approved-record-count",
+    name: `${table.name} record count`,
+    description: `Count of rows in the approved ${table.kind.toLowerCase()} ${tableReference}.`,
+    businessQuestion: `How many records are currently available in ${tableReference}?`,
+    calculationType: "COUNT",
+    sourceTables: [tableReference],
+    sourceColumns: [],
+    filterAssumptions: [],
+    proposedSql: `SELECT COUNT(*) AS ${quotedIdentifier("value", context.dataSourceType)} FROM ${source}`,
+    displayFormat: "NUMBER",
+    confidence: 0.65,
+    limitations: [
+      "Fallback KPI used because no AI-proposed KPI passed metadata grounding.",
+      "This count does not apply business filters or date ranges.",
+    ],
+  };
 }
 
 function createJobHeartbeatReporter(job: AnalysisJob) {
@@ -254,7 +289,7 @@ async function recommendKpisStage(
     onProgress: createJobHeartbeatReporter(job),
   });
   if (!response.ok) return response;
-  const groundedRecommendations = [];
+  const groundedRecommendations: KPIRecommendation[] = [];
   for (const recommendation of response.data.data.recommendations) {
     let candidate = recommendation;
     let grounded = validateKpiGrounding(
@@ -262,35 +297,45 @@ async function recommendKpisStage(
       metadata.data.context,
       configuration.QUERY_MAX_ROWS,
     );
-    for (
-      let repairAttempt = 1;
-      !grounded.ok &&
-      grounded.error.code === "QUERY_VALIDATION_FAILED" &&
-      repairAttempt <= 2;
-      repairAttempt++
-    ) {
+    for (let repairAttempt = 1; !grounded.ok && repairAttempt <= 2; repairAttempt++) {
       const repaired = await generateCachedStructuredOutput(context, {
         requestId: crypto.randomUUID(),
-        schemaName: "kpi_sql_repair",
-        outputSchema: sqlRepairSchema,
+        schemaName: "kpi_recommendation_repair",
+        outputSchema: kpiRecommendationsSchema(1),
         systemPrompt: GROUNDING_SYSTEM_PROMPT,
         userPrompt: metadataTaskPrompt(
-          `Repair the proposed ${metadata.data.context.dataSourceType === "ORACLE" ? "Oracle" : "MySQL"} SELECT for KPI ${candidate.id} without changing its business meaning. ${metadata.data.context.dataSourceType === "ORACLE" ? "Use double-quoted approved identifiers and FETCH FIRST n ROWS ONLY; never use LIMIT. " : ""}Validation code: ${grounded.error.code}. Validation message: ${grounded.error.message}. Repair attempt ${repairAttempt} of 2. Every JOIN must use an exact approved relationship column pair; use an approved bridge table when required. Original SQL: ${candidate.proposedSql}`,
+          `Repair the complete KPI recommendation. Return exactly one recommendation using only the supplied metadata and the exact schema.table.column references it contains. Validation code: ${grounded.error.code}. Validation message: ${grounded.error.message}. ${metadata.data.context.dataSourceType === "ORACLE" ? "Use double-quoted approved Oracle identifiers and FETCH FIRST n ROWS ONLY; never use LIMIT. " : ""}Every JOIN must use an exact approved relationship column pair. If its current aggregation is not compatible with an approved column, use COUNT(*) for one approved table. Original recommendation: ${JSON.stringify(candidate)}`,
           JSON.stringify(metadata.data.context),
         ),
-        promptVersion: `kpi-sql-repair-v1-attempt-${repairAttempt}`,
+        promptVersion: `kpi-recommendation-repair-v1-attempt-${repairAttempt}`,
         onProgress: createJobHeartbeatReporter(job),
       });
-      if (!repaired.ok) return repaired;
-      candidate = { ...candidate, proposedSql: repaired.data.data.sql };
+      // A repair is helpful but must not make the whole job fail; a grounded
+      // fallback is preferable to retrying every AI request from the start.
+      if (!repaired.ok) break;
+      candidate = repaired.data.data.recommendations[0] ?? candidate;
       grounded = validateKpiGrounding(
         candidate,
         metadata.data.context,
         configuration.QUERY_MAX_ROWS,
       );
     }
-    if (!grounded.ok) return grounded;
-    groundedRecommendations.push(grounded.data);
+    if (grounded.ok) groundedRecommendations.push(grounded.data);
+  }
+  if (!groundedRecommendations.length) {
+    const fallback = countFallbackKpi(metadata.data.context);
+    if (!fallback)
+      return failure(
+        "ANALYSIS_SCOPE_INVALID",
+        "No approved table is available for a fallback KPI.",
+      );
+    const groundedFallback = validateKpiGrounding(
+      fallback,
+      metadata.data.context,
+      configuration.QUERY_MAX_ROWS,
+    );
+    if (!groundedFallback.ok) return groundedFallback;
+    groundedRecommendations.push(groundedFallback.data);
   }
   const payload = { recommendations: groundedRecommendations };
   const artifact = await persistArtifact({
