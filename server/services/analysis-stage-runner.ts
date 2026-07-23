@@ -21,6 +21,7 @@ import { generateCachedStructuredOutput } from "@/server/ai/cached-provider";
 import {
   DASHBOARD_DESIGN_PROMPT,
   DASHBOARD_TEMPLATES,
+  scoreDashboardQuality,
   validateDashboardQuality,
 } from "@/server/ai/dashboard-design";
 import {
@@ -686,6 +687,7 @@ async function generateWidgetsStage(
   let widgetResponse = await generateWidgets();
   if (!widgetResponse.ok) return widgetResponse;
   let groundedWidgets = validateWidgets(widgetResponse.data.data.widgets);
+  let usingFallbackWidgets = false;
   for (
     let repairAttempt = 1;
     !groundedWidgets.ok && repairAttempt <= 2;
@@ -702,25 +704,35 @@ async function generateWidgetsStage(
     if (!fallback) return groundedWidgets;
     groundedWidgets = fallback;
     if (!groundedWidgets.ok) return groundedWidgets;
+    usingFallbackWidgets = true;
   }
-  let quality = validateDashboardQuality(
-    groundedWidgets.data,
-    groundedPlan.data,
-    {
-      filtersAvailable: (() => {
-        const analysis = businessSchemaAnalysisSchema.safeParse(
-          schemaArtifact?.payload,
-        );
-        return analysis.success
-          ? Boolean(
-              analysis.data.dateColumns.length ||
-              analysis.data.categoryColumns.length ||
-              analysis.data.statusColumns.length,
-            )
-          : false;
-      })(),
-    },
-  );
+  const qualityOptions = {
+    filtersAvailable: (() => {
+      const analysis = businessSchemaAnalysisSchema.safeParse(
+        schemaArtifact?.payload,
+      );
+      return analysis.success
+        ? Boolean(
+            analysis.data.dateColumns.length ||
+            analysis.data.categoryColumns.length ||
+            analysis.data.statusColumns.length,
+          )
+        : false;
+    })(),
+  };
+  let quality = usingFallbackWidgets
+    ? success(
+        scoreDashboardQuality(
+          groundedWidgets.data,
+          groundedPlan.data,
+          qualityOptions,
+        ),
+      )
+    : validateDashboardQuality(
+        groundedWidgets.data,
+        groundedPlan.data,
+        qualityOptions,
+      );
   if (!quality.ok) {
     widgetResponse = await generateWidgets(
       String(quality.error.diagnostics?.qualityScore ?? quality.error.message),
@@ -731,26 +743,22 @@ async function generateWidgetsStage(
       const fallback = groundFallbackWidgets();
       if (!fallback) return groundedWidgets;
       groundedWidgets = fallback;
+      usingFallbackWidgets = true;
     }
     if (!groundedWidgets.ok) return groundedWidgets;
-    quality = validateDashboardQuality(
-      groundedWidgets.data,
-      groundedPlan.data,
-      {
-        filtersAvailable: (() => {
-          const analysis = businessSchemaAnalysisSchema.safeParse(
-            schemaArtifact?.payload,
-          );
-          return analysis.success
-            ? Boolean(
-                analysis.data.dateColumns.length ||
-                analysis.data.categoryColumns.length ||
-                analysis.data.statusColumns.length,
-              )
-            : false;
-        })(),
-      },
-    );
+    quality = usingFallbackWidgets
+      ? success(
+          scoreDashboardQuality(
+            groundedWidgets.data,
+            groundedPlan.data,
+            qualityOptions,
+          ),
+        )
+      : validateDashboardQuality(
+          groundedWidgets.data,
+          groundedPlan.data,
+          qualityOptions,
+        );
     if (!quality.ok) return quality;
   }
   const artifact = await persistArtifact({
