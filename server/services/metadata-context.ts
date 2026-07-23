@@ -178,6 +178,26 @@ function enforceCharacterLimit(
       table: `${table.schema}.${table.name}`,
       count: table.omittedColumnCount,
     }));
+  if (serializedLength(context) > maxCharacters) {
+    const primary = context.tables[0];
+    context.tables = primary
+      ? [
+          {
+            ...primary,
+            columns: [],
+            sampleRows: [],
+            omittedColumnCount:
+              primary.omittedColumnCount + primary.columns.length,
+          },
+        ]
+      : [];
+    context.relationships = [];
+    context.scopeReduction.includedTableCount = context.tables.length;
+    context.scopeReduction.omittedColumns = [];
+    context.scopeReduction.warnings.push(
+      "Metadata was reduced to an ultra-compact scope to satisfy the configured AI context limit.",
+    );
+  }
 }
 
 export async function buildMetadataContext(
