@@ -414,7 +414,13 @@ export const dashboardWidgetDefinitionSchema = z
 
 export function widgetDefinitionsSchema(maxWidgets: number) {
   return z.object({
-    widgets: z.array(dashboardWidgetDefinitionSchema).max(maxWidgets),
+    // Some OpenAI-compatible models occasionally exceed a requested array
+    // length. Keep the first bounded widget definitions rather than rejecting
+    // an otherwise valid dashboard response.
+    widgets: z.preprocess(
+      (value) => (Array.isArray(value) ? value.slice(0, maxWidgets) : value),
+      z.array(dashboardWidgetDefinitionSchema).max(maxWidgets),
+    ),
   });
 }
 
