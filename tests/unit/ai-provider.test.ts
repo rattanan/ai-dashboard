@@ -109,6 +109,25 @@ describe("OpenAI-compatible provider", () => {
     expect(progress).toHaveBeenCalled();
   });
 
+  it("accepts a complete SSE payload when the provider omits its DONE event", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          streamingResponse([
+            'data: {"choices":[{"delta":{"content":"{\\"summary\\":\\"Grounded\\",\\"confidence\\":0.9}"}}]}\n\n',
+          ]),
+        ),
+    );
+
+    const result = await new OpenAICompatibleProvider(
+      configuration,
+    ).generateStructuredOutput(request());
+
+    expect(result.ok).toBe(true);
+  });
+
   it("rejects malformed SSE events", async () => {
     vi.stubGlobal(
       "fetch",

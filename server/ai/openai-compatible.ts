@@ -309,7 +309,9 @@ export class OpenAICompatibleProvider implements AIProvider {
         }
       }
       const trailing = eventData(buffer.trim());
-      if (trailing && trailing !== "[DONE]") {
+      if (trailing === "[DONE]") {
+        state.completed = true;
+      } else if (trailing) {
         try {
           const chunk = streamChunkSchema.parse(JSON.parse(trailing));
           state.chunkCount += 1;
@@ -325,12 +327,23 @@ export class OpenAICompatibleProvider implements AIProvider {
           );
         }
       }
-      if (!state.receivedFirstChunk || !state.completed)
+      if (!state.receivedFirstChunk)
         return failure(
           "AI_INVALID_RESPONSE",
           "The AI provider ended the stream before completing a response.",
           { requestId: request.requestId },
         );
+      // Gemini's OpenAI-compatible stream occasionally closes after emitting
+      // the complete JSON but without a final [DONE] event. The JSON and Zod
+      // validation that follows remain authoritative, so do not discard a
+      // completed payload solely because that terminal event is missing.
+      if (!state.completed)
+        logger.warn("AI stream ended without a [DONE] event", {
+          requestId: request.requestId,
+          provider: this.name,
+          model: this.model,
+          chunkCount: state.chunkCount,
+        });
       return success({ output: state.output, usage: state.usage });
     } finally {
       if (signal.aborted) await reader.cancel().catch(() => undefined);
