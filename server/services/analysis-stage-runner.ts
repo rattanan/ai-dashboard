@@ -668,18 +668,24 @@ async function generateWidgetsStage(
         : PROMPT_VERSIONS.widgetDefinitions,
       onProgress: createJobHeartbeatReporter(job),
     });
+  const approvedFilters = new Map(
+    groundedPlan.data.globalFilters.map((filter) => [
+      filter.id,
+      filter.control,
+    ]),
+  );
+  const validateWidgets = (widgets: DashboardWidgetDefinition[]) =>
+    validateWidgetGrounding(widgets, queryFieldMap(queries), approvedFilters);
+  const groundFallbackWidgets = () => {
+    const fallbackWidgets = fallbackWidgetsForQueries(
+      queries,
+      configuration.AI_MAX_WIDGETS,
+    );
+    return fallbackWidgets.length ? validateWidgets(fallbackWidgets) : null;
+  };
   let widgetResponse = await generateWidgets();
   if (!widgetResponse.ok) return widgetResponse;
-  let groundedWidgets = validateWidgetGrounding(
-    widgetResponse.data.data.widgets,
-    queryFieldMap(queries),
-    new Map(
-      groundedPlan.data.globalFilters.map((filter) => [
-        filter.id,
-        filter.control,
-      ]),
-    ),
-  );
+  let groundedWidgets = validateWidgets(widgetResponse.data.data.widgets);
   for (
     let repairAttempt = 1;
     !groundedWidgets.ok && repairAttempt <= 2;
@@ -689,33 +695,12 @@ async function generateWidgetsStage(
       `${groundedWidgets.error.message} Repair attempt ${repairAttempt} of 2.`,
     );
     if (!widgetResponse.ok) return widgetResponse;
-    groundedWidgets = validateWidgetGrounding(
-      widgetResponse.data.data.widgets,
-      queryFieldMap(queries),
-      new Map(
-        groundedPlan.data.globalFilters.map((filter) => [
-          filter.id,
-          filter.control,
-        ]),
-      ),
-    );
+    groundedWidgets = validateWidgets(widgetResponse.data.data.widgets);
   }
   if (!groundedWidgets.ok) {
-    const fallbackWidgets = fallbackWidgetsForQueries(
-      queries,
-      configuration.AI_MAX_WIDGETS,
-    );
-    if (!fallbackWidgets.length) return groundedWidgets;
-    groundedWidgets = validateWidgetGrounding(
-      fallbackWidgets,
-      queryFieldMap(queries),
-      new Map(
-        groundedPlan.data.globalFilters.map((filter) => [
-          filter.id,
-          filter.control,
-        ]),
-      ),
-    );
+    const fallback = groundFallbackWidgets();
+    if (!fallback) return groundedWidgets;
+    groundedWidgets = fallback;
     if (!groundedWidgets.ok) return groundedWidgets;
   }
   let quality = validateDashboardQuality(
@@ -741,16 +726,12 @@ async function generateWidgetsStage(
       String(quality.error.diagnostics?.qualityScore ?? quality.error.message),
     );
     if (!widgetResponse.ok) return widgetResponse;
-    groundedWidgets = validateWidgetGrounding(
-      widgetResponse.data.data.widgets,
-      queryFieldMap(queries),
-      new Map(
-        groundedPlan.data.globalFilters.map((filter) => [
-          filter.id,
-          filter.control,
-        ]),
-      ),
-    );
+    groundedWidgets = validateWidgets(widgetResponse.data.data.widgets);
+    if (!groundedWidgets.ok) {
+      const fallback = groundFallbackWidgets();
+      if (!fallback) return groundedWidgets;
+      groundedWidgets = fallback;
+    }
     if (!groundedWidgets.ok) return groundedWidgets;
     quality = validateDashboardQuality(
       groundedWidgets.data,
