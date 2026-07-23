@@ -314,7 +314,7 @@ export const dashboardWidgetDefinitionSchema = z
       palette: z.enum(["BLUE", "EMERALD", "AMBER", "SLATE"]),
     }),
     dataMapping: z.object({
-      dimensions: z.array(z.string()).max(10),
+      dimensions: z.array(z.string()).max(10).default([]),
       measures: z.array(z.string()).max(10),
     }),
     formatting: z.object({
