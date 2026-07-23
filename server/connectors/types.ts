@@ -1,6 +1,7 @@
 import type { AppResult } from "@/types/result";
 
 export type ConnectorConfiguration = {
+  dataSourceId?: string;
   host?: string;
   port?: number;
   databaseName?: string;
@@ -8,6 +9,16 @@ export type ConnectorConfiguration = {
   password?: string;
   sslEnabled?: boolean;
   connectionOptions?: Record<string, string | number | boolean>;
+  oracle?: OracleConnectionConfiguration;
+};
+
+export type OracleConnectionConfiguration = {
+  connectionType: "service_name" | "sid";
+  serviceName?: string;
+  sid?: string;
+  schema?: string;
+  sslMode?: "disable" | "prefer" | "require";
+  connectionTimeoutMs?: number;
 };
 
 export type DiscoveredSchema = { name: string };
@@ -43,8 +54,10 @@ export interface DataConnector {
     AppResult<{
       latencyMs: number;
       serverVersion?: string;
-      engine?: "MYSQL" | "MARIADB";
+      engine?: "MYSQL" | "MARIADB" | "ORACLE";
       compatibilityWarning?: string;
+      currentUser?: string;
+      currentSchema?: string;
     }>
   >;
   listSchemas(): Promise<AppResult<DiscoveredSchema[]>>;

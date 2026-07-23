@@ -8,15 +8,12 @@ export const dataSourceTypeSchema = z.enum([
   "EXCEL",
 ]);
 
-export const databaseConnectionSchema = z.object({
-  type: dataSourceTypeSchema.exclude(["EXCEL"]),
+const baseDatabaseConnectionSchema = z.object({
   name: z.string().trim().min(2).max(100),
   host: z.string().trim().min(1).max(255),
   port: z.coerce.number().int().min(1).max(65535),
-  databaseName: z.string().trim().min(1).max(128),
   username: z.string().trim().min(1).max(128),
   password: z.string().min(1).max(512),
-  sslEnabled: z.coerce.boolean().default(false),
   connectionOptions: z
     .record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
     .refine(
@@ -28,6 +25,45 @@ export const databaseConnectionSchema = z.object({
     )
     .default({}),
 });
+
+export const databaseConnectionSchema = z.discriminatedUnion("type", [
+  baseDatabaseConnectionSchema.extend({
+    type: z.enum(["MYSQL", "POSTGRESQL", "MSSQL"]),
+    databaseName: z.string().trim().min(1).max(128),
+    sslEnabled: z.coerce.boolean().default(false),
+  }),
+  baseDatabaseConnectionSchema
+    .extend({
+      type: z.literal("ORACLE"),
+      databaseName: z.string().trim().min(1).max(128).optional(),
+      sslEnabled: z.coerce.boolean().default(false),
+      connectionType: z.enum(["service_name", "sid"]),
+      serviceName: z.string().trim().min(1).max(128).optional(),
+      sid: z.string().trim().min(1).max(128).optional(),
+      schema: z.string().trim().min(1).max(128).optional(),
+      sslMode: z.enum(["disable", "prefer", "require"]).default("disable"),
+      connectionTimeoutMs: z.coerce
+        .number()
+        .int()
+        .min(1_000)
+        .max(60_000)
+        .default(15_000),
+    })
+    .superRefine((value, ctx) => {
+      if (value.connectionType === "service_name" && !value.serviceName)
+        ctx.addIssue({
+          code: "custom",
+          message: "Service name is required",
+          path: ["serviceName"],
+        });
+      if (value.connectionType === "sid" && !value.sid)
+        ctx.addIssue({
+          code: "custom",
+          message: "SID is required",
+          path: ["sid"],
+        });
+    }),
+]);
 
 export const dashboardObjectiveSchema = z.object({
   dataSourceId: z.string().min(1),

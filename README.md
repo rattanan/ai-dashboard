@@ -63,7 +63,7 @@ openssl rand -base64 32
 openssl rand -hex 32
 ```
 
-Use the base64 value for `CREDENTIAL_ENCRYPTION_KEY` and a 32+ character value for `AUTH_SECRET`.
+Use the base64 value for `CREDENTIAL_ENCRYPTION_KEY` (or the dedicated `DATA_SOURCE_ENCRYPTION_KEY`) and a 32+ character value for `AUTH_SECRET`.
 
 ## Environment variables
 

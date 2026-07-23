@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { validateReadOnlySql } from "@/server/connectors/sql-guard";
+import {
+  validateOracleReadOnlySql,
+  validateReadOnlySql,
+} from "@/server/connectors/sql-guard";
 
 describe("read-only SQL guard", () => {
   it.each([
@@ -19,5 +22,23 @@ describe("read-only SQL guard", () => {
     "nonsense that is not sql",
   ])("rejects unsafe query: %s", (sql) =>
     expect(validateReadOnlySql(sql).ok).toBe(false),
+  );
+});
+
+describe("Oracle read-only SQL guard", () => {
+  it.each([
+    'SELECT * FROM "REPORTING"."ORDERS" FETCH FIRST 20 ROWS ONLY',
+    "WITH totals AS (SELECT 1 AS n FROM dual) SELECT * FROM totals",
+  ])("accepts safe query: %s", (sql) =>
+    expect(validateOracleReadOnlySql(sql).ok).toBe(true),
+  );
+
+  it.each([
+    "DELETE FROM orders",
+    "BEGIN NULL; END;",
+    "SELECT 1 FROM dual; DELETE FROM orders",
+    "SELECT 1 -- bypass\n FROM dual",
+  ])("rejects unsafe query: %s", (sql) =>
+    expect(validateOracleReadOnlySql(sql).ok).toBe(false),
   );
 });

@@ -119,8 +119,8 @@ const sourceOptions: {
   {
     type: "ORACLE",
     title: "Oracle Database",
-    description: "Adapter prepared; live support follows Phase 0.",
-    live: false,
+    description: "Read-only Thin mode connection, discovery, and previews.",
+    live: true,
     icon: <Gauge />,
   },
   {
@@ -157,6 +157,9 @@ export function SetupWizard({
   const [selectedType, setSelectedType] = useState<SourceType>(
     source?.type ?? initialType ?? "MYSQL",
   );
+  const [oracleConnectionType, setOracleConnectionType] = useState<
+    "service_name" | "sid"
+  >("service_name");
   const [selectedTables, setSelectedTables] = useState(
     () =>
       new Set(
@@ -254,7 +257,7 @@ export function SetupWizard({
         <StepCard
           icon={<Database />}
           title="Select a data source"
-          description="Availability is shown honestly. MySQL and Excel have live Phase 0 workflows."
+          description="Live database connections use encrypted server-side credentials and read-only access."
         >
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {sourceOptions.map((option) => (
@@ -381,6 +384,12 @@ export function SetupWizard({
                     password: values.get("password"),
                     sslEnabled: values.get("sslEnabled") === "on",
                     connectionOptions: options,
+                    connectionType: values.get("connectionType"),
+                    serviceName: values.get("serviceName"),
+                    sid: values.get("sid"),
+                    schema: values.get("schema"),
+                    sslMode: values.get("sslMode"),
+                    connectionTimeoutMs: values.get("connectionTimeoutMs"),
                   });
                   if (!result.ok) return setMessage(result.error.message);
                   form.reset();
@@ -426,14 +435,82 @@ export function SetupWizard({
                   required
                 />
               </Field>
-              <Field label="Database name" htmlFor="databaseName" required>
-                <Input
-                  id="databaseName"
-                  name="databaseName"
-                  defaultValue={source?.databaseName ?? ""}
-                  required
-                />
-              </Field>
+              {selectedType === "ORACLE" ? (
+                <>
+                  <Field label="Connection type" htmlFor="connectionType">
+                    <select
+                      id="connectionType"
+                      name="connectionType"
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                      value={oracleConnectionType}
+                      onChange={(event) =>
+                        setOracleConnectionType(
+                          event.target.value as "service_name" | "sid",
+                        )
+                      }
+                    >
+                      <option value="service_name">Service Name</option>
+                      <option value="sid">SID</option>
+                    </select>
+                  </Field>
+                  {oracleConnectionType === "service_name" ? (
+                    <Field label="Service Name" htmlFor="serviceName" required>
+                      <Input
+                        id="serviceName"
+                        name="serviceName"
+                        placeholder="ORCLPDB1"
+                        defaultValue={source?.databaseName ?? ""}
+                        required
+                      />
+                    </Field>
+                  ) : (
+                    <Field label="SID" htmlFor="sid" required>
+                      <Input id="sid" name="sid" placeholder="ORCL" required />
+                    </Field>
+                  )}
+                  <Field
+                    label="Default schema"
+                    htmlFor="schema"
+                    hint="Optional; defaults to the connected user."
+                  >
+                    <Input id="schema" name="schema" placeholder="REPORTING" />
+                  </Field>
+                  <Field label="SSL/TLS mode" htmlFor="sslMode">
+                    <select
+                      id="sslMode"
+                      name="sslMode"
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                      defaultValue="disable"
+                    >
+                      <option value="disable">Disable</option>
+                      <option value="prefer">Prefer</option>
+                      <option value="require">Require</option>
+                    </select>
+                  </Field>
+                  <Field
+                    label="Connection timeout (ms)"
+                    htmlFor="connectionTimeoutMs"
+                  >
+                    <Input
+                      id="connectionTimeoutMs"
+                      name="connectionTimeoutMs"
+                      type="number"
+                      min={1000}
+                      max={60000}
+                      defaultValue={15000}
+                    />
+                  </Field>
+                </>
+              ) : (
+                <Field label="Database name" htmlFor="databaseName" required>
+                  <Input
+                    id="databaseName"
+                    name="databaseName"
+                    defaultValue={source?.databaseName ?? ""}
+                    required
+                  />
+                </Field>
+              )}
               <Field label="Username" htmlFor="username" required>
                 <Input
                   id="username"
@@ -488,6 +565,42 @@ export function SetupWizard({
                   </Field>
                 </div>
               </details>
+              {selectedType === "ORACLE" ? (
+                <p className="sm:col-span-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                  Use a dedicated Oracle read-only account with SELECT
+                  permissions only on approved schemas, tables, or views.
+                </p>
+              ) : null}
+              {selectedType === "ORACLE" ? (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={pending}
+                  onClick={() => {
+                    const form = connectionForm.current;
+                    if (!form || !form.reportValidity()) return;
+                    const values = new FormData(form);
+                    run(async () => {
+                      const response = await fetch("/api/data-sources/test", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          type: "ORACLE",
+                          config: Object.fromEntries(values),
+                        }),
+                      });
+                      const result = await response.json();
+                      setMessage(
+                        result.ok
+                          ? `Connection successful (${result.data.latencyMs} ms; schema ${result.data.currentSchema || "default"}).`
+                          : result.error.message,
+                      );
+                    });
+                  }}
+                >
+                  Test connection
+                </Button>
+              ) : null}
               <Button disabled={pending} className="sm:col-span-2 sm:w-fit">
                 {pending ? (
                   <LoaderCircle className="animate-spin" size={18} />
@@ -511,7 +624,7 @@ export function SetupWizard({
             source.type === "EXCEL" ? "Workbook ready" : "Test the connection"
           }
           description={
-            source.type === "MYSQL"
+            source.type === "MYSQL" || source.type === "ORACLE"
               ? "A short-lived server connection will verify these credentials. No raw error or secret is returned."
               : source.type === "EXCEL"
                 ? "The workbook was stored and its sheet names were detected."
@@ -519,7 +632,7 @@ export function SetupWizard({
           }
         >
           <ConnectionSummary source={source} />
-          {source.type === "MYSQL" ? (
+          {source.type === "MYSQL" || source.type === "ORACLE" ? (
             <ServerOperationButton
               endpoint={`/api/data-sources/${source.id}/test`}
             >
@@ -540,10 +653,11 @@ export function SetupWizard({
             onBack={() => go(3)}
             onNext={() => go(5)}
             nextDisabled={
-              source.type === "MYSQL" && source.status !== "CONNECTED"
+              (source.type === "MYSQL" || source.type === "ORACLE") &&
+              source.status !== "CONNECTED"
             }
             nextLabel={
-              source.type !== "MYSQL"
+              source.type !== "MYSQL" && source.type !== "ORACLE"
                 ? "Continue with prepared integration"
                 : undefined
             }
@@ -554,9 +668,9 @@ export function SetupWizard({
         <StepCard
           icon={<Table2 />}
           title="Select data scope"
-          description="Choose the tables and views relevant to this dashboard. Metadata queries read information_schema only."
+          description="Choose the tables and views relevant to this dashboard. Discovery reads only the database metadata views."
         >
-          {source.type === "MYSQL" ? (
+          {source.type === "MYSQL" || source.type === "ORACLE" ? (
             <>
               {source.schemas.length ? (
                 <div className="space-y-3">
@@ -662,7 +776,11 @@ export function SetupWizard({
           ) : null}
           <Footer
             onBack={() => go(4)}
-            onNext={source.type === "MYSQL" ? undefined : () => go(6)}
+            onNext={
+              source.type === "MYSQL" || source.type === "ORACLE"
+                ? undefined
+                : () => go(6)
+            }
           />
         </StepCard>
       ) : null}

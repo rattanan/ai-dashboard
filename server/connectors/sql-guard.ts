@@ -38,3 +38,29 @@ export function validateReadOnlySql(sql: string): AppResult<{ sql: string }> {
     );
   }
 }
+
+/** Oracle SQL is deliberately validated without a dialect parser. The parser used
+ * for MySQL does not understand Oracle's FETCH FIRST syntax. Comments are denied
+ * outright so they cannot be used to hide a second statement or write operation. */
+export function validateOracleReadOnlySql(
+  sql: string,
+): AppResult<{ sql: string }> {
+  const trimmed = sql.trim();
+  const withoutTerminator = trimmed.replace(/;\s*$/, "");
+  const forbidden =
+    /\b(insert|update|delete|merge|drop|alter|truncate|create|grant|revoke|begin|declare|execute|call|commit|rollback|lock|for\s+update)\b/i;
+  if (
+    !trimmed ||
+    trimmed.length > 100_000 ||
+    /\/\*|\*\/|--/.test(trimmed) ||
+    /;\s*\S/.test(trimmed) ||
+    !/^(select|with)\b/i.test(withoutTerminator) ||
+    forbidden.test(withoutTerminator)
+  ) {
+    return failure(
+      "UNSAFE_QUERY",
+      "Only a single read-only SELECT or WITH query is allowed.",
+    );
+  }
+  return success({ sql: withoutTerminator });
+}

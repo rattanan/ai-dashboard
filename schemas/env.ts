@@ -17,6 +17,16 @@ export const envSchema = z.object({
       return false;
     }
   }, "Must be a base64-encoded 32-byte key"),
+  DATA_SOURCE_ENCRYPTION_KEY: z
+    .string()
+    .refine((value) => {
+      try {
+        return Buffer.from(value, "base64").length === 32;
+      } catch {
+        return false;
+      }
+    }, "Must be a base64-encoded 32-byte key")
+    .optional(),
   CREDENTIAL_KEY_VERSION: z.string().default("env-v1"),
   APP_URL: z.string().url().default("http://localhost:3000"),
   OBJECT_STORAGE_DRIVER: z.enum(["local", "gcs"]).default("local"),

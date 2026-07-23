@@ -14,7 +14,10 @@ import { LocalObjectStorageService } from "@/server/storage/local-storage";
 function encryptionService() {
   const config = env();
   return new AesGcmCredentialEncryptionService(
-    Buffer.from(config.CREDENTIAL_ENCRYPTION_KEY, "base64"),
+    Buffer.from(
+      config.DATA_SOURCE_ENCRYPTION_KEY ?? config.CREDENTIAL_ENCRYPTION_KEY,
+      "base64",
+    ),
     config.CREDENTIAL_KEY_VERSION,
   );
 }
@@ -31,6 +34,7 @@ export async function getDataSourceConnector(
     password = (JSON.parse(plaintext) as { password: string }).password;
   }
   const configuration: ConnectorConfiguration = {
+    dataSourceId: source.id,
     host: source.host ?? undefined,
     port: source.port ?? undefined,
     databaseName: source.databaseName ?? undefined,
@@ -40,6 +44,10 @@ export async function getDataSourceConnector(
     connectionOptions:
       (source.connectionOptions as ConnectorConfiguration["connectionOptions"]) ??
       {},
+    oracle:
+      source.type === "ORACLE"
+        ? (source.connectionOptions as ConnectorConfiguration["oracle"])
+        : undefined,
   };
   return success({
     source,
@@ -97,7 +105,7 @@ export async function discoverDataSource(
   const resolved = await getDataSourceConnector(context, id);
   if (!resolved.ok) return resolved;
   const { connector, source } = resolved.data;
-  if (source.type !== "MYSQL")
+  if (source.type !== "MYSQL" && source.type !== "ORACLE")
     return failure(
       "CONNECTOR_NOT_IMPLEMENTED",
       `${source.type} metadata discovery is planned for a later phase.`,
@@ -201,7 +209,7 @@ export async function discoverDataSource(
     logger.error("Metadata discovery failed", { dataSourceId: id, error });
     return failure(
       "CONNECTION_FAILED",
-      "Metadata discovery failed. Verify that the database user can read information_schema.",
+      "Metadata discovery failed. Verify that the database user can read the permitted metadata views.",
     );
   } finally {
     await connector.close();
@@ -215,11 +223,17 @@ export async function createDatabaseDataSource(
     name: string;
     host: string;
     port: number;
-    databaseName: string;
+    databaseName?: string;
     username: string;
     password: string;
     sslEnabled: boolean;
     connectionOptions: Record<string, string | number | boolean>;
+    connectionType?: "service_name" | "sid";
+    serviceName?: string;
+    sid?: string;
+    schema?: string;
+    sslMode?: "disable" | "prefer" | "require";
+    connectionTimeoutMs?: number;
   },
 ) {
   const encrypted = encryptionService().encrypt(
@@ -233,10 +247,22 @@ export async function createDatabaseDataSource(
         type: input.type,
         host: input.host,
         port: input.port,
-        databaseName: input.databaseName,
+        databaseName:
+          input.type === "ORACLE"
+            ? (input.serviceName ?? input.sid ?? null)
+            : input.databaseName,
         username: input.username,
         sslEnabled: input.sslEnabled,
-        connectionOptions: input.connectionOptions as Prisma.InputJsonValue,
+        connectionOptions: (input.type === "ORACLE"
+          ? {
+              connectionType: input.connectionType!,
+              serviceName: input.serviceName,
+              sid: input.sid,
+              schema: input.schema,
+              sslMode: input.sslMode,
+              connectionTimeoutMs: input.connectionTimeoutMs,
+            }
+          : input.connectionOptions) as Prisma.InputJsonValue,
         createdById: context.userId,
         credential: { create: encrypted },
         access: {
