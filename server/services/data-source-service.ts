@@ -113,7 +113,23 @@ export async function discoverDataSource(
   try {
     const schemas = await connector.listSchemas();
     if (!schemas.ok) return schemas;
-    const schemaNames = schemas.data.map((item) => item.name);
+    const configuredOracleSchema =
+      source.type === "ORACLE"
+        ? String(
+            (source.connectionOptions as { schema?: string } | null)?.schema ??
+              source.username ??
+              "",
+          ).toUpperCase()
+        : undefined;
+    const schemasToScan = configuredOracleSchema
+      ? schemas.data.filter((item) => item.name === configuredOracleSchema)
+      : schemas.data;
+    if (!schemasToScan.length)
+      return failure(
+        "CONNECTION_FAILED",
+        "The configured Oracle schema is not accessible to this database user.",
+      );
+    const schemaNames = schemasToScan.map((item) => item.name);
     const [tables, columns, relationships] = await Promise.all([
       connector.listTables(schemaNames),
       connector.listColumns(schemaNames),
@@ -128,7 +144,7 @@ export async function discoverDataSource(
         where: { dataSourceId: source.id },
       });
       const tableIds = new Map<string, string>();
-      for (const schema of schemas.data) {
+      for (const schema of schemasToScan) {
         const createdSchema = await tx.dataSourceSchema.create({
           data: { dataSourceId: source.id, name: schema.name },
         });
@@ -193,7 +209,7 @@ export async function discoverDataSource(
           entityType: "DataSource",
           entityId: source.id,
           metadata: {
-            schemas: schemas.data.length,
+            schemas: schemasToScan.length,
             tables: tables.data.length,
             columns: columns.data.length,
           },
@@ -201,7 +217,7 @@ export async function discoverDataSource(
       });
     });
     return success({
-      schemas: schemas.data.length,
+      schemas: schemasToScan.length,
       tables: tables.data.length,
       columns: columns.data.length,
     });

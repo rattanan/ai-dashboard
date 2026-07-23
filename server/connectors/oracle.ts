@@ -152,6 +152,7 @@ export class OracleConnector implements DataConnector {
   ): Promise<AppResult<T>> {
     try {
       const connection = await (await this.pool()).getConnection();
+      connection.callTimeout = 30_000;
       try {
         return success(await callback(connection));
       } finally {
