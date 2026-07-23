@@ -143,6 +143,52 @@ function eventData(event: string) {
   return values.length ? values.join("\n") : null;
 }
 
+function parseStructuredJson(output: string): unknown | null {
+  const candidates = [output.trim()];
+  const fenced = output.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenced?.[1]) candidates.push(fenced[1].trim());
+  for (const candidate of candidates) {
+    try {
+      return JSON.parse(candidate);
+    } catch {
+      // Continue to extract the first complete JSON object from a provider
+      // response that incorrectly includes prose or Markdown around it.
+    }
+  }
+  let start = -1;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = 0; index < output.length; index++) {
+    const character = output[index];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === '"') inString = false;
+      continue;
+    }
+    if (character === '"') {
+      inString = true;
+      continue;
+    }
+    if (character === "{" && start < 0) {
+      start = index;
+      depth = 1;
+      continue;
+    }
+    if (start < 0) continue;
+    if (character === "{") depth += 1;
+    if (character === "}") depth -= 1;
+    if (depth !== 0) continue;
+    try {
+      return JSON.parse(output.slice(start, index + 1));
+    } catch {
+      start = -1;
+    }
+  }
+  return null;
+}
+
 function readStreamChunk(
   reader: ReadableStreamDefaultReader<Uint8Array>,
   signal: AbortSignal,
@@ -506,16 +552,13 @@ export class OpenAICompatibleProvider implements AIProvider {
             ? usageFrom(envelope.data.usage)
             : undefined;
         }
-        let parsedOutput: unknown;
-        try {
-          parsedOutput = JSON.parse(rawOutput);
-        } catch {
+        const parsedOutput = parseStructuredJson(rawOutput);
+        if (parsedOutput === null)
           return failure(
             "AI_INVALID_RESPONSE",
             "The AI provider did not return valid structured JSON.",
             { requestId: request.requestId },
           );
-        }
         const output = request.outputSchema.safeParse(parsedOutput);
         if (!output.success) {
           const validationPaths = output.error.issues

@@ -82,6 +82,30 @@ describe("OpenAI-compatible provider", () => {
     expect(JSON.parse(String(init.body)).stream).toBe(true);
   });
 
+  it("extracts valid JSON from an accidental Markdown code fence", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        Response.json({
+          choices: [
+            {
+              message: {
+                content:
+                  'Here is the result:\n```json\n{"summary":"Grounded","confidence":0.9}\n```',
+              },
+            },
+          ],
+        }),
+      ),
+    );
+
+    const result = await new OpenAICompatibleProvider(
+      configuration,
+    ).generateStructuredOutput(request());
+
+    expect(result.ok).toBe(true);
+  });
+
   it("assembles split SSE chunks and captures final usage", async () => {
     const progress = vi.fn();
     vi.stubGlobal(
@@ -201,8 +225,12 @@ describe("OpenAI-compatible provider", () => {
       "fetch",
       vi
         .fn()
-        .mockResolvedValue(
-          Response.json({ choices: [{ message: { content: "Result: {}" } }] }),
+        .mockImplementation(() =>
+          Promise.resolve(
+            Response.json({
+              choices: [{ message: { content: "Result: {}" } }],
+            }),
+          ),
         ),
     );
     const result = await new OpenAICompatibleProvider(
