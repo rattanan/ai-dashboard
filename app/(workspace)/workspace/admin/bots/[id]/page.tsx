@@ -164,7 +164,7 @@ export default async function BotDetailPage({
             </div>
           </dl>
           <Link
-            href={`/workspace/admin/bots#${bot.id}`}
+            href={`/workspace/admin/bots/${bot.id}/edit`}
             className="min-h-11 w-fit rounded-lg border px-4 py-2.5 text-sm font-medium"
           >
             Edit versioned configuration

@@ -1,9 +1,7 @@
+import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/ui/page-header";
-import {
-  DocumentUploadForm,
-  KnowledgeRackForm,
-} from "@/components/knowledge/phase2-forms";
+import { DocumentUploadForm } from "@/components/knowledge/phase2-forms";
 import { KnowledgeStudioNav } from "@/components/knowledge/studio-nav";
 import { retryDocumentIndexAction } from "@/features/knowledge/actions";
 import { requireAuthorization } from "@/server/auth/authorization";
@@ -13,43 +11,44 @@ import { db } from "@/server/db";
 export default async function KnowledgeRackAdministrationPage() {
   const context = await requireAuthorization();
   await requirePermission(context, "knowledge.manage");
-  const [racks, roles] = await Promise.all([
-    db.knowledgeRack.findMany({
-      where: { organizationId: context.organizationId },
-      include: {
-        sources: {
-          include: {
-            documents: {
-              include: {
-                currentVersion: { select: { id: true } },
-                versions: {
-                  orderBy: { version: "desc" },
-                  take: 1,
-                  include: {
-                    indexJobs: { orderBy: { createdAt: "desc" }, take: 1 },
-                    _count: { select: { chunks: true } },
-                  },
+  const racks = await db.knowledgeRack.findMany({
+    where: { organizationId: context.organizationId },
+    include: {
+      sources: {
+        include: {
+          documents: {
+            include: {
+              currentVersion: { select: { id: true } },
+              versions: {
+                orderBy: { version: "desc" },
+                take: 1,
+                include: {
+                  indexJobs: { orderBy: { createdAt: "desc" }, take: 1 },
+                  _count: { select: { chunks: true } },
                 },
               },
-              orderBy: { updatedAt: "desc" },
             },
+            orderBy: { updatedAt: "desc" },
           },
         },
-        _count: { select: { bots: true, access: true } },
       },
-      orderBy: { name: "asc" },
-    }),
-    db.role.findMany({
-      where: { organizationId: context.organizationId },
-      select: { id: true, name: true },
-      orderBy: { name: "asc" },
-    }),
-  ]);
+      _count: { select: { bots: true, access: true } },
+    },
+    orderBy: { name: "asc" },
+  });
   return (
     <div className="space-y-6">
       <PageHeader
         title="Knowledge racks"
         description="Upload governed documents and monitor parsing, chunking, embedding, retries, and index versions."
+        action={
+          <Link
+            href="/workspace/admin/knowledge/new"
+            className="inline-flex min-h-11 items-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground"
+          >
+            Create knowledge rack
+          </Link>
+        }
       />
       <KnowledgeStudioNav />
       {racks.map((rack) => {
@@ -153,10 +152,6 @@ export default async function KnowledgeRackAdministrationPage() {
           </section>
         );
       })}
-      <section className="rounded-xl border border-dashed bg-card p-5">
-        <h2 className="mb-5 font-semibold">Create knowledge rack</h2>
-        <KnowledgeRackForm roles={roles} />
-      </section>
     </div>
   );
 }

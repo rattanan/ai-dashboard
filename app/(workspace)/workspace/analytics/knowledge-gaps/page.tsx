@@ -96,7 +96,7 @@ export default async function KnowledgeGapsPage() {
                 Open evidence
               </Link>
               <Link
-                href="/workspace/sources?create=copied-text"
+                href="/workspace/sources/copied-text/new"
                 className="min-h-11 rounded-lg border px-3 py-2.5 text-sm font-medium"
               >
                 Create copied text

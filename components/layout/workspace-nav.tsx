@@ -113,7 +113,6 @@ const groups: Array<{ label: string; items: NavigationItem[] }> = [
         icon: LibraryBig,
         showAny: ["knowledgeManagement", "dataConnections", "legacyApis"],
         exact: true,
-        excludeQueryKeys: ["create", "editCopied"],
       },
       {
         href: "/workspace/sources/web",
@@ -130,12 +129,11 @@ const groups: Array<{ label: string; items: NavigationItem[] }> = [
         exact: true,
       },
       {
-        href: "/workspace/sources?create=copied-text",
+        href: "/workspace/sources/copied-text/new",
         label: "Copied Text",
         icon: FileText,
         show: "knowledgeManagement",
-        exact: true,
-        query: { key: "create", value: "copied-text" },
+        activePrefixes: ["/workspace/sources/copied-text"],
       },
       {
         href: "/workspace/sources/database",
@@ -163,7 +161,7 @@ const groups: Array<{ label: string; items: NavigationItem[] }> = [
         exact: true,
       },
       {
-        href: "/workspace/admin/bots#new",
+        href: "/workspace/admin/bots/new",
         label: "Create Bot",
         icon: BotMessageSquare,
         show: "botManagement",

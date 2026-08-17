@@ -5,7 +5,6 @@ import { PageHeader } from "@/components/ui/page-header";
 import {
   DeleteAllMemoriesForm,
   MemoryConsentForm,
-  MemoryForm,
 } from "@/components/memory/memory-forms";
 import { deleteUserMemoryAction } from "@/features/memory/actions";
 import { requireAuthorization } from "@/server/auth/authorization";
@@ -57,6 +56,11 @@ export default async function UserMemoryPage() {
       <PageHeader
         title="My memory & consent"
         description={`Control the preferences and organization context InsightKM may reuse. Active memories expire after ${retention?.memoryRetentionDays ?? 365} days and can be deleted immediately.`}
+        action={
+          <Button asChild>
+            <Link href="/workspace/profile/memory/new">Add memory</Link>
+          </Button>
+        }
       />
       <div className="flex flex-wrap gap-3">
         <Button asChild variant="outline">
@@ -71,14 +75,6 @@ export default async function UserMemoryPage() {
         </p>
         <MemoryConsentForm bots={choices} />
       </section>
-      <section className="rounded-xl border bg-card p-5 sm:p-6">
-        <h2 className="font-semibold">Add memory</h2>
-        <p className="mb-5 mt-1 text-sm text-muted-foreground">
-          Passwords, tokens, credentials, identifiers, contact details,
-          financial data, and opaque secrets are rejected.
-        </p>
-        <MemoryForm bots={choices} />
-      </section>
       <section className="space-y-4">
         <div>
           <h2 className="font-semibold">Active memories</h2>
@@ -88,38 +84,32 @@ export default async function UserMemoryPage() {
         </div>
         <div className="grid gap-4 xl:grid-cols-2">
           {memories.map((memory) => (
-            <details key={memory.id} className="rounded-xl border bg-card p-5">
-              <summary className="flex min-h-11 cursor-pointer list-none flex-wrap items-center justify-between gap-3">
+            <article key={memory.id} className="rounded-xl border bg-card p-5">
+              <div className="flex min-h-11 flex-wrap items-center justify-between gap-3">
                 <span className="font-medium">{memory.key}</span>
                 <span className="flex gap-2">
                   <Badge>{memory.category}</Badge>
                   <Badge tone="neutral">{memory.bot?.name ?? "ALL BOTS"}</Badge>
                 </span>
-              </summary>
+              </div>
               <p className="my-4 rounded-lg bg-muted p-3 text-sm">
                 {memory.value}
               </p>
               <p className="mb-4 text-xs text-muted-foreground">
                 Expires {memory.expiresAt.toLocaleString()}
               </p>
-              <MemoryForm
-                bots={choices}
-                memory={{
-                  id: memory.id,
-                  botId: memory.botId,
-                  category: memory.category,
-                  key: memory.key,
-                  value: memory.value,
-                }}
-              />
-              <form
-                action={deleteUserMemoryAction}
-                className="mt-4 border-t pt-4"
-              >
-                <input type="hidden" name="id" value={memory.id} />
-                <Button variant="destructive">Delete permanently</Button>
-              </form>
-            </details>
+              <div className="flex flex-wrap gap-3 border-t pt-4">
+                <Button asChild variant="outline">
+                  <Link href={`/workspace/profile/memory/${memory.id}/edit`}>
+                    Edit
+                  </Link>
+                </Button>
+                <form action={deleteUserMemoryAction}>
+                  <input type="hidden" name="id" value={memory.id} />
+                  <Button variant="destructive">Delete permanently</Button>
+                </form>
+              </div>
+            </article>
           ))}
           {!memories.length ? (
             <p className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground xl:col-span-2">

@@ -10,6 +10,17 @@ import {
   type InsightKmJobResult,
 } from "@/packages/queue/system-queue";
 
+const QUEUE_METRICS_TIMEOUT_MS = 2_000;
+
+export type SystemQueueMetrics = {
+  waiting: number;
+  active: number;
+  delayed: number;
+  completed: number;
+  failed: number;
+  workers: number;
+};
+
 export async function enqueueDocumentIndexJob(indexJobId: string) {
   const configuration = env();
   const connection = createRedisConnection(configuration.REDIS_URL);
@@ -148,23 +159,43 @@ export async function configureSourceRefreshSchedule(input: {
   }
 }
 
-export async function getSystemQueueMetrics() {
+export async function getSystemQueueMetrics(): Promise<SystemQueueMetrics> {
   const configuration = env();
   const connection = createRedisConnection(configuration.REDIS_URL);
   const queue = new Queue(SYSTEM_QUEUE, {
     connection,
     prefix: process.env.BULLMQ_PREFIX ?? "insightkm",
   });
+  let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
-    return await queue.getJobCounts(
-      "waiting",
-      "active",
-      "delayed",
-      "completed",
-      "failed",
-    );
+    return await Promise.race([
+      Promise.all([
+        queue.getJobCounts(
+          "waiting",
+          "active",
+          "delayed",
+          "completed",
+          "failed",
+        ),
+        queue.getWorkers(),
+      ]).then(([counts, workers]) => ({
+        waiting: counts.waiting ?? 0,
+        active: counts.active ?? 0,
+        delayed: counts.delayed ?? 0,
+        completed: counts.completed ?? 0,
+        failed: counts.failed ?? 0,
+        workers: workers.length,
+      })),
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => {
+          connection.disconnect();
+          reject(new Error("QUEUE_METRICS_TIMEOUT"));
+        }, QUEUE_METRICS_TIMEOUT_MS);
+      }),
+    ]);
   } finally {
-    await queue.close();
+    if (timeout) clearTimeout(timeout);
+    await queue.close().catch(() => undefined);
     connection.disconnect();
   }
 }

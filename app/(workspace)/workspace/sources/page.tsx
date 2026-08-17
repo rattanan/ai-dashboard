@@ -9,10 +9,7 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/ui/page-header";
-import {
-  CopiedTextSourceForm,
-  SourceAssignmentForm,
-} from "@/components/sources/source-forms";
+import { SourceAssignmentForm } from "@/components/sources/source-forms";
 import { KnowledgeSourceActions } from "@/components/sources/knowledge-source-actions";
 import { requireAuthorization } from "@/server/auth/authorization";
 import { hasPermission } from "@/server/auth/permissions";
@@ -68,8 +65,6 @@ export default async function SourcesPage({
     status?: string;
     sort?: string;
     page?: string;
-    create?: string;
-    editCopied?: string;
   }>;
 }) {
   const [context, query] = await Promise.all([
@@ -84,7 +79,7 @@ export default async function SourcesPage({
   ]);
   if (!canKnowledge && !canDatabases && !canApiTools)
     throw new Error("FORBIDDEN");
-  const [knowledge, databases, apiTools, bots, racks] = await Promise.all([
+  const [knowledge, databases, apiTools, bots] = await Promise.all([
     canKnowledge
       ? db.knowledgeSource.findMany({
           where: { rack: { organizationId: context.organizationId } },
@@ -95,7 +90,6 @@ export default async function SourcesPage({
               include: { bot: { select: { name: true } } },
               orderBy: { priority: "asc" },
             },
-            copiedTextConfig: true,
             documents: {
               where: { active: true },
               select: {
@@ -150,13 +144,6 @@ export default async function SourcesPage({
           orderBy: { name: "asc" },
         })
       : Promise.resolve([]),
-    canKnowledge
-      ? db.knowledgeRack.findMany({
-          where: { organizationId: context.organizationId, active: true },
-          select: { id: true, name: true },
-          orderBy: { name: "asc" },
-        })
-      : Promise.resolve([]),
   ]);
   const sources: UnifiedSource[] = [
     ...knowledge.map((source) => ({
@@ -182,7 +169,10 @@ export default async function SourcesPage({
         source.createdBy?.name ??
         source.createdBy?.email ??
         "System / migrated",
-      href: `/workspace/admin/knowledge/sources`,
+      href:
+        source.type === "COPIED_TEXT"
+          ? `/workspace/sources/copied-text/${source.id}/edit`
+          : "/workspace/admin/knowledge/sources",
     })),
     ...databases.map((source) => ({
       id: source.id,
@@ -221,14 +211,6 @@ export default async function SourcesPage({
       href: "/workspace/sources/api-tools",
     })),
   ];
-  const copiedTextToEdit = query.editCopied
-    ? knowledge.find(
-        (source) =>
-          source.id === query.editCopied &&
-          source.type === "COPIED_TEXT" &&
-          source.copiedTextConfig,
-      )
-    : undefined;
   const search = query.q?.trim().toLocaleLowerCase() ?? "";
   const filtered = sources.filter(
     (source) =>
@@ -269,7 +251,7 @@ export default async function SourcesPage({
         {[
           ["Web URL", "/workspace/sources/web"],
           ["File upload", "/workspace/sources/file-upload"],
-          ["Copied text", "/workspace/sources?create=copied-text"],
+          ["Copied text", "/workspace/sources/copied-text/new"],
           ["Database", "/workspace/sources/database"],
           ["API tools", "/workspace/sources/api-tools"],
         ].map(([label, href]) => (
@@ -282,40 +264,6 @@ export default async function SourcesPage({
           </Link>
         ))}
       </nav>
-      {query.create === "copied-text" || copiedTextToEdit ? (
-        <section className="rounded-xl border bg-card p-5">
-          <h2 className="font-semibold">
-            {copiedTextToEdit
-              ? "Edit copied text source"
-              : "Create copied text source"}
-          </h2>
-          <p className="mb-5 mt-1 text-sm text-muted-foreground">
-            The content is versioned as a governed text document, chunked,
-            embedded, and queued through the existing worker.
-          </p>
-          <CopiedTextSourceForm
-            racks={racks}
-            bots={bots}
-            value={
-              copiedTextToEdit?.copiedTextConfig
-                ? {
-                    id: copiedTextToEdit.id,
-                    rackId: copiedTextToEdit.rackId,
-                    name: copiedTextToEdit.name,
-                    description: copiedTextToEdit.description,
-                    content: copiedTextToEdit.copiedTextConfig.content,
-                    category: copiedTextToEdit.category,
-                    tags: copiedTextToEdit.tags,
-                    scope: copiedTextToEdit.scope,
-                    botIds: copiedTextToEdit.botAssignments.map(
-                      (item) => item.botId,
-                    ),
-                  }
-                : undefined
-            }
-          />
-        </section>
-      ) : null}
       <form className="grid gap-3 rounded-xl border bg-card p-4 md:grid-cols-[1fr_180px_180px_160px_auto]">
         <label className="relative">
           <span className="sr-only">Search sources</span>

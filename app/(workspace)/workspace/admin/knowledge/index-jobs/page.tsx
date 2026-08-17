@@ -135,7 +135,7 @@ export default async function IndexJobsPage({
         />
         <Metric
           label="Active workers"
-          value={queueMetrics?.active ?? "Unavailable"}
+          value={queueMetrics?.workers ?? "Unavailable"}
         />
         <Metric label="Processing" value={count("PROCESSING")} />
         <Metric

@@ -18,7 +18,7 @@ export function KnowledgeSourceActions({
     <div className="flex flex-wrap gap-2">
       {type === "COPIED TEXT" ? (
         <Link
-          href={`/workspace/sources?editCopied=${id}`}
+          href={`/workspace/sources/copied-text/${id}/edit`}
           className="min-h-11 rounded-lg border px-3 py-2.5 text-sm font-medium"
         >
           Edit content

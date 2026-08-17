@@ -1,10 +1,7 @@
+import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/ui/page-header";
 import { KnowledgeStudioNav } from "@/components/knowledge/studio-nav";
-import {
-  SharedFolderSourceForm,
-  WebSourceForm,
-} from "@/components/knowledge/phase4-forms";
 import {
   refreshSourceAction,
   reindexSourceAction,
@@ -80,27 +77,16 @@ export default async function KnowledgeSourcesPage() {
       <PageHeader
         title="Operational knowledge sources"
         description="Ingest pre-mounted folders and public web pages incrementally through the worker. The application process never mounts or crawls sources itself."
+        action={
+          <Link
+            href="/workspace/admin/knowledge/sources/new"
+            className="inline-flex min-h-11 items-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground"
+          >
+            Add source
+          </Link>
+        }
       />
       <KnowledgeStudioNav />
-
-      <div className="grid gap-6 xl:grid-cols-2">
-        <section className="rounded-xl border bg-card p-5">
-          <h2 className="mb-1 font-semibold">Add shared folder</h2>
-          <p className="mb-5 text-sm text-muted-foreground">
-            Only allowlisted, canonical worker paths are accepted.
-          </p>
-          <SharedFolderSourceForm racks={racks} />
-        </section>
-        <section className="rounded-xl border bg-card p-5">
-          <h2 className="mb-1 font-semibold">Add web page</h2>
-          <p className="mb-5 text-sm text-muted-foreground">
-            Public HTTP(S) only, with domain, redirect, DNS, size, and timeout
-            controls.
-          </p>
-          <WebSourceForm racks={racks} />
-        </section>
-      </div>
-
       <section className="rounded-xl border bg-card p-5">
         <div className="mb-4">
           <h2 className="font-semibold">Configured sources</h2>

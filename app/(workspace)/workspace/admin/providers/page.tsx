@@ -1,8 +1,6 @@
+import Link from "next/link";
 import { AdminNav } from "@/components/admin/admin-nav";
-import {
-  LlmProviderForm,
-  ProviderTestButton,
-} from "@/components/admin/phase1-forms";
+import { ProviderTestButton } from "@/components/admin/phase1-forms";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/ui/page-header";
 import { deleteLlmProviderAction } from "@/features/admin/config-actions";
@@ -18,81 +16,98 @@ export default async function LlmProvidersPage() {
     include: { credential: { select: { id: true } } },
     orderBy: [{ active: "desc" }, { name: "asc" }],
   });
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="LLM providers"
-        description="Configure chat and embedding models. API keys are encrypted at rest and never returned to the browser."
+        description="Review provider health and open a dedicated page when creating or editing configuration."
+        action={
+          <Link
+            href="/workspace/admin/providers/new"
+            className="inline-flex min-h-11 items-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground"
+          >
+            Add provider
+          </Link>
+        }
       />
       <AdminNav />
-      {providers.map((provider) => (
-        <section
-          key={provider.id}
-          className="space-y-5 rounded-xl border bg-card p-5"
-        >
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <h2 className="font-semibold">{provider.name}</h2>
-              <Badge tone={provider.active ? "success" : "neutral"}>
-                {provider.active ? "ACTIVE" : "INACTIVE"}
-              </Badge>
-              <Badge
-                tone={
-                  provider.lastHealthStatus === "HEALTHY"
-                    ? "success"
-                    : provider.lastHealthStatus === "UNHEALTHY"
-                      ? "danger"
-                      : "neutral"
-                }
-              >
-                {provider.lastHealthStatus}
-              </Badge>
+      <section className="grid gap-4 xl:grid-cols-2" aria-label="LLM providers">
+        {providers.map((provider) => (
+          <article key={provider.id} className="rounded-xl border bg-card p-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="font-semibold">{provider.name}</h2>
+                <p className="mt-1 break-all text-sm text-muted-foreground">
+                  {provider.baseUrl}
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <Badge tone={provider.active ? "success" : "neutral"}>
+                  {provider.active ? "ACTIVE" : "INACTIVE"}
+                </Badge>
+                <Badge
+                  tone={
+                    provider.lastHealthStatus === "HEALTHY"
+                      ? "success"
+                      : provider.lastHealthStatus === "UNHEALTHY"
+                        ? "danger"
+                        : "neutral"
+                  }
+                >
+                  {provider.lastHealthStatus}
+                </Badge>
+              </div>
             </div>
-            <span className="text-xs text-muted-foreground">
-              Key:{" "}
-              {provider.credential ? "•••••••• configured" : "not configured"}
-            </span>
-          </div>
-          <LlmProviderForm
-            provider={{
-              id: provider.id,
-              name: provider.name,
-              baseUrl: provider.baseUrl,
-              chatModel: provider.chatModel,
-              embeddingModel: provider.embeddingModel,
-              temperature: provider.temperature,
-              timeoutMs: provider.timeoutMs,
-              maxTokens: provider.maxTokens,
-              active: provider.active,
-              supportsJsonSchema: provider.supportsJsonSchema,
-              fallbackEnabled: provider.fallbackEnabled,
-              hasApiKey: Boolean(provider.credential),
-            }}
-          />
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4">
-            <ProviderTestButton providerId={provider.id} />
-            <form action={deleteLlmProviderAction}>
-              <input type="hidden" name="providerId" value={provider.id} />
-              <button className="min-h-10 rounded-lg border border-red-200 px-3 text-sm text-red-700">
-                Delete
-              </button>
-            </form>
-          </div>
-          {provider.lastHealthMessage ? (
-            <p className="text-sm text-muted-foreground">
-              Last test: Chat {provider.lastChatHealthStatus} · Embedding{" "}
-              {provider.lastEmbeddingHealthStatus} ·{" "}
-              {provider.lastHealthMessage}{" "}
-              {provider.lastTestedAt
-                ? `· ${provider.lastTestedAt.toLocaleString()}`
-                : ""}
-            </p>
-          ) : null}
-        </section>
-      ))}
-      <section className="space-y-5 rounded-xl border border-dashed bg-card p-5">
-        <h2 className="font-semibold">Add provider</h2>
-        <LlmProviderForm />
+            <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+              <div>
+                <dt className="text-muted-foreground">Chat model</dt>
+                <dd className="font-medium">{provider.chatModel}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Embedding model</dt>
+                <dd className="font-medium">{provider.embeddingModel}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">API key</dt>
+                <dd className="font-medium">
+                  {provider.credential ? "Configured" : "Not configured"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Last tested</dt>
+                <dd className="font-medium">
+                  {provider.lastTestedAt?.toLocaleString() ?? "Never"}
+                </dd>
+              </div>
+            </dl>
+            {provider.lastHealthMessage ? (
+              <p className="mt-4 rounded-lg bg-muted p-3 text-sm text-muted-foreground">
+                {provider.lastHealthMessage}
+              </p>
+            ) : null}
+            <div className="mt-5 flex flex-wrap gap-2 border-t pt-4">
+              <Link
+                href={`/workspace/admin/providers/${provider.id}/edit`}
+                className="inline-flex min-h-11 items-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground"
+              >
+                Edit provider
+              </Link>
+              <ProviderTestButton providerId={provider.id} />
+              <form action={deleteLlmProviderAction}>
+                <input type="hidden" name="providerId" value={provider.id} />
+                <button className="min-h-11 rounded-lg border border-red-200 px-4 text-sm font-medium text-red-700">
+                  Delete
+                </button>
+              </form>
+            </div>
+          </article>
+        ))}
+        {!providers.length ? (
+          <p className="rounded-xl border border-dashed p-10 text-center text-sm text-muted-foreground xl:col-span-2">
+            No providers configured yet.
+          </p>
+        ) : null}
       </section>
     </div>
   );

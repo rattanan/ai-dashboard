@@ -1,5 +1,6 @@
+import Link from "next/link";
 import { AdminNav } from "@/components/admin/admin-nav";
-import { OrganizationScopeForm } from "@/components/admin/phase1-forms";
+import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
 import { toggleOrganizationScopeAction } from "@/features/admin/config-actions";
 import { requireAuthorization } from "@/server/auth/authorization";
@@ -32,6 +33,11 @@ export default async function OrganizationScopesPage() {
       <PageHeader
         title="Organization scopes"
         description="Assign users to one department and any number of projects."
+        action={
+          <Button asChild>
+            <Link href="/workspace/admin/scopes/new">Add scope</Link>
+          </Button>
+        }
       />
       <AdminNav />
       <div className="grid gap-6 xl:grid-cols-2">
@@ -41,8 +47,7 @@ export default async function OrganizationScopesPage() {
             className="space-y-5 rounded-xl border bg-card p-5"
           >
             <h2 className="font-semibold">{group.title}</h2>
-            <OrganizationScopeForm kind={group.kind} />
-            <div className="divide-y border-t">
+            <div className="divide-y">
               {group.rows.map((row) => (
                 <div
                   key={row.id}
