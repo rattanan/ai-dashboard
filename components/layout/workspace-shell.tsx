@@ -6,6 +6,7 @@ import {
   InsightKmMark,
   InsightKmWordmark,
 } from "@/components/brand/insightkm-mark";
+import type { NavigationAccess } from "./workspace-nav";
 
 export function WorkspaceShell({
   children,
@@ -16,13 +17,7 @@ export function WorkspaceShell({
   children: React.ReactNode;
   workspace: { name: string; organizationName: string };
   user: { name?: string | null; email?: string | null };
-  navigation: {
-    administration: boolean;
-    excel: boolean;
-    bots: boolean;
-    knowledgeManagement: boolean;
-    insights: boolean;
-  };
+  navigation: NavigationAccess;
 }) {
   const initials = (user.name || user.email || "U")
     .split(/\s|@/)
@@ -31,14 +26,20 @@ export function WorkspaceShell({
     .join("");
   return (
     <div className="min-h-dvh bg-background lg:grid lg:grid-cols-[272px_1fr]">
-      <aside className="hidden border-r bg-card lg:fixed lg:inset-y-0 lg:block lg:w-[272px]">
-        <div className="flex h-20 items-center border-b px-5">
+      <a
+        href="#main-content"
+        className="sr-only fixed left-4 top-4 z-50 rounded-lg bg-slate-950 px-4 py-3 text-sm font-medium text-white focus:not-sr-only"
+      >
+        Skip to main content
+      </a>
+      <aside className="hidden border-r bg-card lg:fixed lg:inset-y-0 lg:flex lg:w-[272px] lg:flex-col">
+        <div className="flex h-20 shrink-0 items-center border-b px-5">
           <Link href="/workspace" className="flex items-center gap-3">
             <InsightKmMark />
             <InsightKmWordmark />
           </Link>
         </div>
-        <div className="p-4">
+        <div className="min-h-0 flex-1 overflow-y-auto p-4 [scrollbar-gutter:stable]">
           <div className="mb-5 rounded-xl border bg-[linear-gradient(135deg,#fafaff,#f4f3ff)] p-3.5">
             <p className="truncate text-xs font-medium text-muted-foreground">
               {workspace.organizationName}
@@ -63,7 +64,7 @@ export function WorkspaceShell({
             >
               <Menu size={20} />
             </summary>
-            <div className="absolute left-0 top-13 w-72 rounded-xl border bg-card p-3 shadow-xl">
+            <div className="absolute left-0 top-13 max-h-[calc(100dvh-6rem)] w-[min(22rem,calc(100vw-2rem))] overflow-y-auto rounded-xl border bg-card p-3 shadow-xl">
               <p className="px-3 pb-3 text-sm font-semibold">
                 {workspace.name}
               </p>
