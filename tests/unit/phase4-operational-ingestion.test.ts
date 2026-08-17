@@ -4,6 +4,7 @@ import path from "node:path";
 import type { Pool } from "pg";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { recoverStaleOperations } from "@/packages/knowledge/recover-operations";
+import { shouldSkipWebCrawlError } from "@/packages/knowledge/refresh-source";
 import {
   domainAllowed,
   extractMainHtml,
@@ -103,6 +104,31 @@ describe("Phase 4 shared-folder security and incrementality", () => {
 });
 
 describe("Phase 4 web-source SSRF controls", () => {
+  it.each([400, 403])(
+    "skips child-page HTTP %s without making the refresh partial",
+    (status) => {
+      const error = new SourceSecurityError(
+        "FETCH_FAILED",
+        `The web source returned HTTP ${status}.`,
+      );
+
+      expect(shouldSkipWebCrawlError(error, 1)).toBe(true);
+      expect(shouldSkipWebCrawlError(error, 0)).toBe(false);
+    },
+  );
+
+  it("keeps other child-page failures visible", () => {
+    expect(
+      shouldSkipWebCrawlError(
+        new SourceSecurityError(
+          "FETCH_FAILED",
+          "The web source returned HTTP 404.",
+        ),
+        1,
+      ),
+    ).toBe(false);
+  });
+
   it("returns the pinned address shape requested by Node networking", async () => {
     const lookup = pinnedAddressLookup("93.184.216.34", 4);
 

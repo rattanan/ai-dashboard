@@ -7,6 +7,7 @@ import {
   configuredSharedRoots,
   fetchWebPage,
   scanSharedFolder,
+  SourceSecurityError,
 } from "./source-security.js";
 
 type SourceRow = {
@@ -74,11 +75,17 @@ async function sourceRow(pool: Pool, sourceId: string) {
             f."rootPath", f."includeSubdirectories", f."maxFiles",
             w.url, w."allowedDomains", w."timeoutMs", w."maxBytes", w."maxRedirects",
             w."crawlDepth", w."maxPages",
-            p."embeddingModel"
+            COALESCE(ep.model, p."embeddingModel") AS "embeddingModel"
        FROM "KnowledgeSource" s
        JOIN "KnowledgeRack" r ON r.id = s."rackId"
        LEFT JOIN "SharedFolderSourceConfig" f ON f."sourceId" = s.id
        LEFT JOIN "WebSourceConfig" w ON w."sourceId" = s.id
+       LEFT JOIN LATERAL (
+         SELECT model FROM "AiEndpointConfig"
+          WHERE "organizationId" = r."organizationId"
+            AND kind = 'EMBEDDING' AND active = true
+          ORDER BY "updatedAt" DESC LIMIT 1
+       ) ep ON true
        LEFT JOIN LATERAL (
          SELECT "embeddingModel" FROM "LlmProvider"
           WHERE "organizationId" = r."organizationId" AND active = true
@@ -88,6 +95,12 @@ async function sourceRow(pool: Pool, sourceId: string) {
     [sourceId],
   );
   return rows[0];
+}
+
+export function shouldSkipWebCrawlError(error: unknown, depth: number) {
+  if (depth === 0 || !(error instanceof SourceSecurityError)) return false;
+  if (error.code !== "FETCH_FAILED") return false;
+  return /^The web source returned HTTP (?:400|403)\.$/.test(error.message);
 }
 
 async function ensureRun(
@@ -593,6 +606,7 @@ async function refreshWeb(
       else newCount += 1;
       successCount += 1;
     } catch (error) {
+      if (shouldSkipWebCrawlError(error, item.depth)) continue;
       const message = (
         error instanceof Error ? error.message : "Web page refresh failed"
       ).slice(0, 500);
