@@ -1,6 +1,9 @@
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
-import { validatePublicWebUrl } from "@/packages/knowledge/source-security";
+import {
+  pinnedAddressLookup,
+  validatePublicWebUrl,
+} from "@/packages/knowledge/source-security";
 
 export type SafeApiErrorCode =
   | "URL_DENIED"
@@ -96,8 +99,7 @@ async function pinnedRequest(input: {
           "user-agent": "InsightKM-LegacyApi/1.0",
           ...(input.body ? { "content-type": "application/json" } : {}),
         },
-        lookup: (_hostname, _options, callback) =>
-          callback(null, input.address, input.family),
+        lookup: pinnedAddressLookup(input.address, input.family),
         servername: input.url.hostname,
       },
       (response) => {

@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useActionState, useEffect, useState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Bot, ImageUp, MessageCircle, Sparkles } from "lucide-react";
 import { saveBotAppearanceAction } from "@/features/knowledge/actions";
@@ -9,6 +9,11 @@ import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Input, Select } from "@/components/ui/input";
 import { useWorkspaceLocale } from "@/components/layout/workspace-locale";
+import {
+  StandardBotIcon,
+  standardBotIconChoices,
+} from "@/components/knowledge/standard-bot-icon";
+import { standardBotIconId, type StandardBotIconId } from "@/lib/bot-icons";
 
 type AppearanceValue = {
   id: string;
@@ -114,10 +119,24 @@ export function BotAppearanceForm({ bot }: { bot: AppearanceValue }) {
   const [launcherSize, setLauncherSize] = useState(bot.launcherSize);
   const [windowPosition, setWindowPosition] = useState(bot.windowPosition);
   const [brandingEnabled, setBrandingEnabled] = useState(bot.brandingEnabled);
-  const [avatarPreview, setAvatarPreview] = useState(bot.avatarUrl);
-  const [launcherPreview, setLauncherPreview] = useState(bot.launcherIcon);
+  const initialAvatarIcon = standardBotIconId(bot.avatarUrl);
+  const initialLauncherIcon = standardBotIconId(bot.launcherIcon);
+  const [avatarPreview, setAvatarPreview] = useState(
+    initialAvatarIcon ? null : bot.avatarUrl,
+  );
+  const [launcherPreview, setLauncherPreview] = useState(
+    initialLauncherIcon ? null : bot.launcherIcon,
+  );
+  const [avatarStandardIcon, setAvatarStandardIcon] = useState<
+    StandardBotIconId | undefined
+  >(initialAvatarIcon);
+  const [launcherStandardIcon, setLauncherStandardIcon] = useState<
+    StandardBotIconId | undefined
+  >(initialLauncherIcon);
   const [removeAvatar, setRemoveAvatar] = useState(false);
   const [removeLauncherIcon, setRemoveLauncherIcon] = useState(false);
+  const avatarFileRef = useRef<HTMLInputElement>(null);
+  const launcherFileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (state?.ok) router.refresh();
@@ -138,6 +157,16 @@ export function BotAppearanceForm({ bot }: { bot: AppearanceValue }) {
       className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(340px,0.8fr)]"
     >
       <input type="hidden" name="botId" value={bot.id} />
+      <input
+        type="hidden"
+        name="avatarStandardIcon"
+        value={avatarStandardIcon ?? ""}
+      />
+      <input
+        type="hidden"
+        name="launcherStandardIcon"
+        value={launcherStandardIcon ?? ""}
+      />
       <div className="space-y-6">
         <fieldset className="space-y-4 rounded-2xl border p-4 sm:p-5">
           <legend className="px-2 text-base font-semibold">
@@ -316,7 +345,12 @@ export function BotAppearanceForm({ bot }: { bot: AppearanceValue }) {
             >
               <div className="space-y-3">
                 <div className="flex size-20 items-center justify-center overflow-hidden rounded-2xl border bg-muted">
-                  {avatarPreview ? (
+                  {avatarStandardIcon ? (
+                    <StandardBotIcon
+                      id={avatarStandardIcon}
+                      className="size-9 text-indigo-700"
+                    />
+                  ) : avatarPreview ? (
                     <Image
                       src={avatarPreview}
                       alt="Bot profile preview"
@@ -333,13 +367,44 @@ export function BotAppearanceForm({ bot }: { bot: AppearanceValue }) {
                     />
                   )}
                 </div>
+                <div>
+                  <p className="mb-2 text-xs font-medium text-muted-foreground">
+                    {t("Choose a standard icon")}
+                  </p>
+                  <div
+                    className="grid grid-cols-6 gap-2"
+                    aria-label={t("Standard profile icons")}
+                  >
+                    {standardBotIconChoices.map(({ id, label }) => (
+                      <button
+                        key={id}
+                        type="button"
+                        aria-label={t(label)}
+                        aria-pressed={avatarStandardIcon === id}
+                        title={t(label)}
+                        onClick={() => {
+                          setAvatarStandardIcon(id);
+                          setAvatarPreview(null);
+                          setRemoveAvatar(false);
+                          if (avatarFileRef.current)
+                            avatarFileRef.current.value = "";
+                        }}
+                        className="grid min-h-11 place-items-center rounded-xl border bg-card text-muted-foreground transition hover:border-indigo-300 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 aria-pressed:border-indigo-500 aria-pressed:bg-indigo-50 aria-pressed:text-indigo-700"
+                      >
+                        <StandardBotIcon id={id} className="size-5" />
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <Input
+                  ref={avatarFileRef}
                   id="appearance-avatar"
                   name="avatarFile"
                   type="file"
                   accept="image/png,image/jpeg,image/webp"
                   onChange={(event) =>
                     imagePreview(event.target.files?.[0], (value) => {
+                      setAvatarStandardIcon(undefined);
                       setAvatarPreview(value);
                       setRemoveAvatar(false);
                     })
@@ -354,9 +419,16 @@ export function BotAppearanceForm({ bot }: { bot: AppearanceValue }) {
                       checked={removeAvatar}
                       onChange={(event) => {
                         setRemoveAvatar(event.target.checked);
-                        setAvatarPreview(
-                          event.target.checked ? null : bot.avatarUrl,
+                        setAvatarStandardIcon(
+                          event.target.checked ? undefined : initialAvatarIcon,
                         );
+                        setAvatarPreview(
+                          event.target.checked || initialAvatarIcon
+                            ? null
+                            : bot.avatarUrl,
+                        );
+                        if (event.target.checked && avatarFileRef.current)
+                          avatarFileRef.current.value = "";
                       }}
                     />
                     {t("Remove current profile image")}
@@ -378,7 +450,13 @@ export function BotAppearanceForm({ bot }: { bot: AppearanceValue }) {
                     backgroundColor: primaryColor,
                   }}
                 >
-                  {launcherPreview ? (
+                  {launcherStandardIcon ? (
+                    <StandardBotIcon
+                      id={launcherStandardIcon}
+                      width={Math.round(launcherSize * 0.42)}
+                      height={Math.round(launcherSize * 0.42)}
+                    />
+                  ) : launcherPreview ? (
                     <Image
                       src={launcherPreview}
                       alt="Launcher icon preview"
@@ -394,13 +472,44 @@ export function BotAppearanceForm({ bot }: { bot: AppearanceValue }) {
                     />
                   )}
                 </div>
+                <div>
+                  <p className="mb-2 text-xs font-medium text-muted-foreground">
+                    {t("Choose a standard icon")}
+                  </p>
+                  <div
+                    className="grid grid-cols-6 gap-2"
+                    aria-label={t("Standard launcher icons")}
+                  >
+                    {standardBotIconChoices.map(({ id, label }) => (
+                      <button
+                        key={id}
+                        type="button"
+                        aria-label={t(label)}
+                        aria-pressed={launcherStandardIcon === id}
+                        title={t(label)}
+                        onClick={() => {
+                          setLauncherStandardIcon(id);
+                          setLauncherPreview(null);
+                          setRemoveLauncherIcon(false);
+                          if (launcherFileRef.current)
+                            launcherFileRef.current.value = "";
+                        }}
+                        className="grid min-h-11 place-items-center rounded-xl border bg-card text-muted-foreground transition hover:border-indigo-300 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 aria-pressed:border-indigo-500 aria-pressed:bg-indigo-50 aria-pressed:text-indigo-700"
+                      >
+                        <StandardBotIcon id={id} className="size-5" />
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <Input
+                  ref={launcherFileRef}
                   id="appearance-launcher-icon"
                   name="launcherIconFile"
                   type="file"
                   accept="image/png,image/jpeg,image/webp"
                   onChange={(event) =>
                     imagePreview(event.target.files?.[0], (value) => {
+                      setLauncherStandardIcon(undefined);
                       setLauncherPreview(value);
                       setRemoveLauncherIcon(false);
                     })
@@ -415,9 +524,18 @@ export function BotAppearanceForm({ bot }: { bot: AppearanceValue }) {
                       checked={removeLauncherIcon}
                       onChange={(event) => {
                         setRemoveLauncherIcon(event.target.checked);
-                        setLauncherPreview(
-                          event.target.checked ? null : bot.launcherIcon,
+                        setLauncherStandardIcon(
+                          event.target.checked
+                            ? undefined
+                            : initialLauncherIcon,
                         );
+                        setLauncherPreview(
+                          event.target.checked || initialLauncherIcon
+                            ? null
+                            : bot.launcherIcon,
+                        );
+                        if (event.target.checked && launcherFileRef.current)
+                          launcherFileRef.current.value = "";
                       }}
                     />
                     {t("Remove current launcher icon")}
@@ -491,7 +609,12 @@ export function BotAppearanceForm({ bot }: { bot: AppearanceValue }) {
                 }}
               >
                 <div className="grid size-10 shrink-0 place-items-center overflow-hidden rounded-xl bg-white/15">
-                  {avatarPreview ? (
+                  {avatarStandardIcon ? (
+                    <StandardBotIcon
+                      id={avatarStandardIcon}
+                      className="size-5"
+                    />
+                  ) : avatarPreview ? (
                     <Image
                       src={avatarPreview}
                       alt=""
@@ -560,7 +683,13 @@ export function BotAppearanceForm({ bot }: { bot: AppearanceValue }) {
                 backgroundColor: primaryColor,
               }}
             >
-              {launcherPreview ? (
+              {launcherStandardIcon ? (
+                <StandardBotIcon
+                  id={launcherStandardIcon}
+                  width={Math.round(launcherSize * 0.42)}
+                  height={Math.round(launcherSize * 0.42)}
+                />
+              ) : launcherPreview ? (
                 <Image
                   src={launcherPreview}
                   alt=""

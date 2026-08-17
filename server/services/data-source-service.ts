@@ -23,8 +23,23 @@ function batches<T>(values: T[], size = 500) {
   return result;
 }
 
-function fingerprint(value: unknown) {
-  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+export function fingerprint(value: unknown) {
+  const serialized = JSON.stringify(value, (_key, nested) =>
+    typeof nested === "bigint" ? nested.toString() : nested,
+  );
+  return createHash("sha256").update(serialized).digest("hex");
+}
+
+function discoveryDiagnostics(error: unknown, operation: string) {
+  const source =
+    error && typeof error === "object"
+      ? (error as Record<string, unknown>)
+      : undefined;
+  return {
+    operation,
+    errorType: error instanceof Error ? error.name : "UnknownError",
+    ...(typeof source?.code === "string" ? { driverCode: source.code } : {}),
+  };
 }
 
 function encryptionService() {
@@ -127,6 +142,7 @@ export async function discoverDataSource(
   const resolved = await getDataSourceConnector(context, id);
   if (!resolved.ok) return resolved;
   const { connector, source } = resolved.data;
+  let operation = "readMetadata";
   if (source.type === "EXCEL")
     return failure(
       "CONNECTOR_NOT_IMPLEMENTED",
@@ -262,6 +278,7 @@ export async function discoverDataSource(
       relationships: relationships.data,
     });
 
+    operation = "persistSchemas";
     await db.$transaction(
       async (tx) => {
         const schemaIds = new Map<string, string>();
@@ -290,6 +307,7 @@ export async function discoverDataSource(
             lastSeenVersion: { lt: nextVersion },
           },
         });
+        operation = "persistTables";
         for (const table of incomingTables.values()) {
           const schemaId = schemaIds.get(table.schemaName);
           if (!schemaId) continue;
@@ -298,7 +316,7 @@ export async function discoverDataSource(
           );
           const metadataChanged =
             previous?.metadataFingerprint !== table.fingerprint;
-          await tx.dataSourceTable.upsert({
+          const persistedTable = await tx.dataSourceTable.upsert({
             where: { schemaId_name: { schemaId, name: table.name } },
             create: {
               schemaId,
@@ -320,13 +338,18 @@ export async function discoverDataSource(
                     semanticDescription: null,
                     semanticModel: null,
                     semanticFingerprint: null,
-                    semanticEmbedding: null,
                     semanticEmbeddingModel: null,
                     semanticEmbeddingDimension: null,
                   }
                 : {}),
             },
           });
+          if (metadataChanged)
+            await tx.$executeRaw`
+              UPDATE "DataSourceTable"
+                 SET "semanticEmbedding" = NULL
+               WHERE id = ${persistedTable.id}
+            `;
         }
         await tx.dataSourceTable.deleteMany({
           where: {
@@ -344,6 +367,7 @@ export async function discoverDataSource(
             table.id,
           ]),
         );
+        operation = "persistColumns";
         for (const column of incomingColumns.values()) {
           const tableId = tableIds.get(
             `${column.schemaName}.${column.tableName}`,
@@ -393,6 +417,7 @@ export async function discoverDataSource(
             lastSeenVersion: { lt: nextVersion },
           },
         });
+        operation = "persistRelationships";
         await tx.dataSourceRelationship.deleteMany({
           where: { fromTable: { schema: { dataSourceId: source.id } } },
         });
@@ -420,6 +445,7 @@ export async function discoverDataSource(
             data: batch,
             skipDuplicates: true,
           });
+        operation = "finalizeMetadata";
         await tx.dataSource.update({
           where: { id: source.id },
           data: {
@@ -475,10 +501,18 @@ export async function discoverDataSource(
       diff,
     });
   } catch (error) {
-    logger.error("Metadata discovery failed", { dataSourceId: id, error });
+    const requestId = crypto.randomUUID();
+    const diagnostics = discoveryDiagnostics(error, operation);
+    logger.error("Metadata discovery failed", {
+      requestId,
+      dataSourceId: id,
+      diagnostics,
+      error,
+    });
     return failure(
       "CONNECTION_FAILED",
       "Metadata discovery failed. Verify that the database user can read the permitted metadata views.",
+      { requestId, diagnostics },
     );
   } finally {
     await connector.close();

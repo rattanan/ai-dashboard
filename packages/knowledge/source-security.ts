@@ -3,7 +3,7 @@ import { createReadStream } from "node:fs";
 import { lstat, readdir, realpath, stat } from "node:fs/promises";
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
-import { isIP } from "node:net";
+import { isIP, type LookupFunction } from "node:net";
 import { lookup } from "node:dns/promises";
 import path from "node:path";
 import { isSupportedDocument } from "./document-types";
@@ -283,6 +283,19 @@ export async function validateWebRedirect(
   return (await validatePublicWebUrl(candidate, allowedDomains)).url.href;
 }
 
+export function pinnedAddressLookup(
+  address: string,
+  family: number,
+): LookupFunction {
+  return (_hostname, options, callback) => {
+    if (options.all) {
+      callback(null, [{ address, family }]);
+      return;
+    }
+    callback(null, address, family);
+  };
+}
+
 export function extractMainHtml(html: string) {
   const withoutNoise = html
     .replace(
@@ -371,8 +384,7 @@ async function requestOnce(input: {
             ? { "if-modified-since": input.lastModified }
             : {}),
         },
-        lookup: (_hostname, _options, callback) =>
-          callback(null, input.address, input.family),
+        lookup: pinnedAddressLookup(input.address, input.family),
         servername: input.url.hostname,
       },
       (response) => {

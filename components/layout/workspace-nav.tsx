@@ -6,7 +6,6 @@ import { usePathname, useSearchParams } from "next/navigation";
 import {
   Activity,
   Bot,
-  BotMessageSquare,
   BookOpenCheck,
   BrainCircuit,
   ChartNoAxesCombined,
@@ -27,7 +26,6 @@ import {
   ScrollText,
   ServerCog,
   ShieldCheck,
-  Sparkles,
   Store,
   UsersRound,
   type LucideIcon,
@@ -60,6 +58,7 @@ type NavigationItem = {
   icon: LucideIcon;
   show?: keyof NavigationAccess;
   showAny?: Array<keyof NavigationAccess>;
+  hideWhen?: keyof NavigationAccess;
   exact?: boolean;
   activePrefixes?: string[];
   query?: { key: string; value: string };
@@ -155,38 +154,18 @@ const groups: Array<{ label: string; items: NavigationItem[] }> = [
     items: [
       {
         href: "/workspace/bots",
-        label: "All Bots",
+        label: "Bots",
         icon: Bot,
         show: "botUse",
+        hideWhen: "botManagement",
         exact: true,
       },
       {
         href: "/workspace/admin/bots",
-        label: "Manage Bots",
-        icon: BotMessageSquare,
+        label: "Bots",
+        icon: Bot,
         show: "botManagement",
-        exact: true,
-      },
-      {
-        href: "/workspace/admin/bots/new",
-        label: "Create Bot",
-        icon: BotMessageSquare,
-        show: "botManagement",
-        exact: true,
-      },
-      {
-        href: "/workspace/bots/playground",
-        label: "Playground",
-        icon: Sparkles,
-        show: "botManagement",
-        exact: true,
-      },
-      {
-        href: "/workspace/bots/integrations",
-        label: "Embed & Integration",
-        icon: Network,
-        show: "botManagement",
-        exact: true,
+        activePrefixes: ["/workspace/admin/bots"],
       },
     ],
   },
@@ -425,95 +404,14 @@ export function WorkspaceNav({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { t } = useWorkspaceLocale();
-  const botDetailMatch = pathname.match(
-    /^\/workspace\/admin\/bots\/([^/]+)$/,
-  );
-  const botId = botDetailMatch?.[1] === "new" ? undefined : botDetailMatch?.[1];
-  const contextualGroups: Array<{
-    label: string;
-    items: NavigationItem[];
-  }> = botId
-    ? [
-        {
-          label: "Bot settings",
-          items: [
-            {
-              href: `/workspace/admin/bots/${botId}`,
-              label: "Overview",
-              icon: Gauge,
-              exact: true,
-              excludeQueryKeys: ["tab"],
-            },
-            {
-              href: `/workspace/admin/bots/${botId}?tab=prompt-model`,
-              label: "Prompt & Model",
-              icon: BrainCircuit,
-              exact: true,
-              query: { key: "tab", value: "prompt-model" },
-            },
-            {
-              href: `/workspace/admin/bots/${botId}?tab=sources`,
-              label: "Bot Sources",
-              icon: LibraryBig,
-              exact: true,
-              query: { key: "tab", value: "sources" },
-            },
-            {
-              href: `/workspace/admin/bots/${botId}?tab=api-tools`,
-              label: "Bot API Tools",
-              icon: PlugZap,
-              exact: true,
-              query: { key: "tab", value: "api-tools" },
-            },
-            {
-              href: `/workspace/admin/bots/${botId}?tab=playground`,
-              label: "Playground",
-              icon: Sparkles,
-              exact: true,
-              query: { key: "tab", value: "playground" },
-            },
-            {
-              href: `/workspace/admin/bots/${botId}?tab=appearance`,
-              label: "Appearance",
-              icon: Bot,
-              exact: true,
-              query: { key: "tab", value: "appearance" },
-            },
-            {
-              href: `/workspace/admin/bots/${botId}?tab=embed-integration`,
-              label: "Embed & Integration",
-              icon: Network,
-              exact: true,
-              query: { key: "tab", value: "embed-integration" },
-            },
-            {
-              href: `/workspace/admin/bots/${botId}?tab=conversation-history`,
-              label: "Conversation History",
-              icon: MessagesSquare,
-              exact: true,
-              query: { key: "tab", value: "conversation-history" },
-            },
-            {
-              href: `/workspace/admin/bots/${botId}?tab=analytics`,
-              label: "Bot Analytics",
-              icon: ChartNoAxesCombined,
-              exact: true,
-              query: { key: "tab", value: "analytics" },
-            },
-          ],
-        },
-      ]
-    : [];
-  const navigationGroups = groups.flatMap((group) =>
-    group.label === "Bots" ? [group, ...contextualGroups] : [group],
-  );
-  const visibleGroups = navigationGroups
+  const visibleGroups = groups
     .map((group) => ({
       ...group,
       items: group.items.filter(
         (item) =>
           (!item.show || access[item.show]) &&
-          (!item.showAny || item.showAny.some((key) => access[key])),
+          (!item.showAny || item.showAny.some((key) => access[key])) &&
+          (!item.hideWhen || !access[item.hideWhen]),
       ),
     }))
     .filter((group) => group.items.length > 0);

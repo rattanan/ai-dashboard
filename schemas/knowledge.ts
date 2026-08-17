@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isStandardBotIconPath, STANDARD_BOT_ICON_IDS } from "@/lib/bot-icons";
 
 const optionalId = z.preprocess(
   (value) => (value === "" ? undefined : value),
@@ -18,7 +19,9 @@ export const botConfigurationSchema = z.object({
       .string()
       .refine(
         (value) =>
-          botAssetPath.test(value) || z.string().url().safeParse(value).success,
+          botAssetPath.test(value) ||
+          isStandardBotIconPath(value) ||
+          z.string().url().safeParse(value).success,
         "Enter a valid URL",
       )
       .optional(),
@@ -41,7 +44,9 @@ export const botConfigurationSchema = z.object({
       .string()
       .refine(
         (value) =>
-          botAssetPath.test(value) || z.string().url().safeParse(value).success,
+          botAssetPath.test(value) ||
+          isStandardBotIconPath(value) ||
+          z.string().url().safeParse(value).success,
         "Enter a valid URL",
       )
       .optional(),
@@ -77,6 +82,14 @@ export const botAppearanceSchema = z.object({
   launcherSize: z.coerce.number().int().min(40).max(80),
   windowPosition: z.enum(["LEFT", "RIGHT"]),
   brandingEnabled: z.preprocess((value) => value === "on", z.boolean()),
+  avatarStandardIcon: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.enum(STANDARD_BOT_ICON_IDS).optional(),
+  ),
+  launcherStandardIcon: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.enum(STANDARD_BOT_ICON_IDS).optional(),
+  ),
   removeAvatar: z.preprocess((value) => value === "on", z.boolean()),
   removeLauncherIcon: z.preprocess((value) => value === "on", z.boolean()),
 });

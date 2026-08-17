@@ -322,7 +322,9 @@ export async function testAiEndpoint(
           ? {
               model: endpoint.model,
               messages: [{ role: "user", content: "Reply with OK" }],
-              max_tokens: 8,
+              // Reasoning models may spend the first completion tokens on
+              // internal reasoning before producing message.content.
+              max_tokens: 128,
               temperature: 0,
             }
           : {

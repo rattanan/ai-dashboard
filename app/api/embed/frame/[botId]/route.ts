@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { db } from "@/server/db";
+import { isStandardBotIconPath } from "@/lib/bot-icons";
 
 function html(value: string) {
   return value.replace(
@@ -55,13 +56,15 @@ export async function GET(
       : bot.colorMode === "AUTO"
         ? `@media(prefers-color-scheme:dark){${darkRules}}`
         : "";
-  const avatarRule =
-    bot.avatarUrl &&
-    /^\/api\/bots\/[^/]+\/assets\/[a-f0-9-]{36}\.(?:jpg|png|webp)$/.test(
-      bot.avatarUrl,
-    )
-      ? `.head:before{content:"";width:40px;height:40px;flex:none;border-radius:12px;background:url("${html(bot.avatarUrl)}") center/cover no-repeat}`
-      : "";
+  const avatarRule = bot.avatarUrl
+    ? isStandardBotIconPath(bot.avatarUrl)
+      ? `.head:before{content:"";width:40px;height:40px;flex:none;border-radius:12px;background:#ffffff26 url("${html(bot.avatarUrl)}") center/24px 24px no-repeat}`
+      : /^\/api\/bots\/[^/]+\/assets\/[a-f0-9-]{36}\.(?:jpg|png|webp)$/.test(
+            bot.avatarUrl,
+          )
+        ? `.head:before{content:"";width:40px;height:40px;flex:none;border-radius:12px;background:url("${html(bot.avatarUrl)}") center/cover no-repeat}`
+        : ""
+    : "";
   const nonce = randomBytes(18).toString("base64url");
   const csp = [
     "default-src 'none'",

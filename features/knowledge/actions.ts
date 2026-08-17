@@ -23,6 +23,7 @@ import {
   localBotAssetKey,
   MAX_BOT_IMAGE_BYTES,
 } from "@/server/services/bot-assets";
+import { standardBotIconPath } from "@/lib/bot-icons";
 
 function botFormValues(formData: FormData) {
   return {
@@ -384,24 +385,30 @@ export async function saveBotAppearanceAction(
       });
       if (!bot) throw new Error("BOT_NOT_FOUND");
       const version = bot.currentVersion + 1;
-      const avatarUrl = parsed.data.removeAvatar
-        ? null
-        : storedAvatar && avatarUpload
+      const avatarUrl =
+        storedAvatar && avatarUpload
           ? botAssetUrl(
               bot.id,
               storedAvatar.key,
               avatarUpload.imageType.extension,
             )
-          : bot.avatarUrl;
-      const launcherIcon = parsed.data.removeLauncherIcon
-        ? null
-        : storedLauncher && launcherUpload
+          : parsed.data.avatarStandardIcon
+            ? standardBotIconPath(parsed.data.avatarStandardIcon)
+            : parsed.data.removeAvatar
+              ? null
+              : bot.avatarUrl;
+      const launcherIcon =
+        storedLauncher && launcherUpload
           ? botAssetUrl(
               bot.id,
               storedLauncher.key,
               launcherUpload.imageType.extension,
             )
-          : bot.launcherIcon;
+          : parsed.data.launcherStandardIcon
+            ? standardBotIconPath(parsed.data.launcherStandardIcon)
+            : parsed.data.removeLauncherIcon
+              ? null
+              : bot.launcherIcon;
       const appearance = {
         primaryColor: parsed.data.primaryColor,
         headerColor: parsed.data.headerColor,

@@ -248,9 +248,42 @@ export async function retryDocumentIndex(
   const job = version?.indexJobs[0];
   if (!version || !job)
     return failure("NOT_FOUND", "Document index job not found.");
+  const [endpoint, provider] = await Promise.all([
+    db.aiEndpointConfig.findFirst({
+      where: {
+        organizationId: context.organizationId,
+        kind: "EMBEDDING",
+        active: true,
+      },
+      select: { model: true },
+      orderBy: { updatedAt: "desc" },
+    }),
+    db.llmProvider.findFirst({
+      where: { organizationId: context.organizationId, active: true },
+      select: { embeddingModel: true },
+      orderBy: { updatedAt: "desc" },
+    }),
+  ]);
+  const embeddingModel =
+    endpoint?.model ?? provider?.embeddingModel ?? env().EMBEDDING_MODEL;
+  const targetJob =
+    job.embeddingModel === embeddingModel
+      ? job
+      : ((await db.documentIndexJob.findFirst({
+          where: { documentVersionId: version.id, embeddingModel },
+          orderBy: { updatedAt: "desc" },
+        })) ??
+        (await db.documentIndexJob.create({
+          data: { documentVersionId: version.id, embeddingModel },
+        })));
+  if (["PROCESSING", "CANCEL_REQUESTED"].includes(targetJob.status))
+    return failure(
+      "CONFLICT",
+      "This document is already being indexed with the active model.",
+    );
   await db.$transaction([
     db.documentIndexJob.update({
-      where: { id: job.id },
+      where: { id: targetJob.id },
       data: {
         status: "QUEUED",
         attempt: 0,
@@ -269,6 +302,6 @@ export async function retryDocumentIndex(
       data: { status: "QUEUED", errorMessage: null },
     }),
   ]);
-  await enqueueDocumentIndexJob(job.id);
+  await enqueueDocumentIndexJob(targetJob.id);
   return success({ queued: true as const });
 }

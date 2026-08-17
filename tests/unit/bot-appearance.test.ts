@@ -8,6 +8,11 @@ import {
   detectBotImageType,
   localBotAssetKey,
 } from "@/server/services/bot-assets";
+import {
+  isStandardBotIconPath,
+  standardBotIconId,
+  standardBotIconPath,
+} from "@/lib/bot-icons";
 
 describe("bot appearance", () => {
   it("validates bounded theme and size settings", () => {
@@ -22,12 +27,40 @@ describe("bot appearance", () => {
       launcherSize: "56",
       windowPosition: "RIGHT",
       brandingEnabled: "on",
+      avatarStandardIcon: "brain",
+      launcherStandardIcon: "message",
     });
     expect(valid.success).toBe(true);
+    if (valid.success) {
+      expect(valid.data.avatarStandardIcon).toBe("brain");
+      expect(valid.data.launcherStandardIcon).toBe("message");
+    }
     expect(
       botAppearanceSchema.safeParse({
         ...(valid.success ? valid.data : {}),
         launcherSize: 120,
+      }).success,
+    ).toBe(false);
+  });
+
+  it("round-trips standard icon paths", () => {
+    const path = standardBotIconPath("headset");
+    expect(path).toBe("/bot-icons/headset.svg");
+    expect(isStandardBotIconPath(path)).toBe(true);
+    expect(standardBotIconId(path)).toBe("headset");
+    expect(standardBotIconId("/bot-icons/unknown.svg")).toBeUndefined();
+    expect(
+      botAppearanceSchema.safeParse({
+        botId: "bot-1",
+        primaryColor: "#4f46e5",
+        headerColor: "#312e81",
+        chatBubbleColor: "#eef2ff",
+        fontFamily: "system",
+        colorMode: "AUTO",
+        widgetSize: "STANDARD",
+        launcherSize: "56",
+        windowPosition: "RIGHT",
+        avatarStandardIcon: "unknown",
       }).success,
     ).toBe(false);
   });
@@ -56,6 +89,9 @@ describe("bot appearance", () => {
 
   it("rejects malformed local asset paths in full bot configuration", () => {
     const avatarField = botConfigurationSchema.shape.avatarUrl;
+    expect(avatarField.safeParse("/bot-icons/bot.svg")).toMatchObject({
+      success: true,
+    });
     expect(
       avatarField.safeParse('/api/bots/x/assets/image.png\");color:red'),
     ).toMatchObject({ success: false });

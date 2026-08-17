@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { ArrowLeft, MessageCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { BotAppearanceForm } from "@/components/knowledge/bot-appearance-form";
+import { BotSettingsNav } from "@/components/knowledge/bot-settings-nav";
 import { PageHeader } from "@/components/ui/page-header";
 import { requireAuthorization } from "@/server/auth/authorization";
-import { requirePermission } from "@/server/auth/permissions";
+import { hasPermission, requirePermission } from "@/server/auth/permissions";
 import { db } from "@/server/db";
 
 const tabs = [
@@ -83,12 +85,34 @@ export default async function BotDetailPage({
   const assignedIds = new Set(
     bot.knowledgeSources.map((item) => item.sourceId),
   );
+  const canChat = await hasPermission(context, "bot.use");
   return (
     <div className="space-y-6">
       <PageHeader
         title={bot.name}
         description={bot.description ?? "Versioned enterprise knowledge bot"}
+        action={
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href="/workspace/admin/bots"
+              className="inline-flex min-h-11 items-center gap-2 rounded-xl border bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+            >
+              <ArrowLeft size={17} aria-hidden="true" />
+              Back to bots
+            </Link>
+            {bot.active && canChat ? (
+              <Link
+                href={`/workspace/chat/${bot.id}`}
+                className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground"
+              >
+                <MessageCircle size={17} aria-hidden="true" />
+                Chat
+              </Link>
+            ) : null}
+          </div>
+        }
       />
+      <BotSettingsNav botId={bot.id} current={tab} />
       {tab === "overview" ? (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {[

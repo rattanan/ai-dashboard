@@ -25,6 +25,8 @@ const thaiTranslations: Record<string, string> = {
   "Manage Bots": "จัดการบอต",
   "Create Bot": "สร้างบอต",
   "Bot settings": "การตั้งค่าบอต",
+  "Configure this bot without leaving its workspace.":
+    "ตั้งค่าบอตนี้ได้ภายในพื้นที่ทำงานเดียว",
   "Prompt & Model": "คำสั่งและโมเดล",
   "Bot Sources": "แหล่งข้อมูลของบอต",
   "Bot API Tools": "เครื่องมือ API ของบอต",
@@ -75,6 +77,14 @@ const thaiTranslations: Record<string, string> = {
     "เลือกขนาดระหว่าง 40 ถึง 80 พิกเซล",
   "Bot images": "รูปภาพบอต",
   "Bot profile image": "รูปโปรไฟล์บอต",
+  "Choose a standard icon": "เลือกไอคอนมาตรฐาน",
+  "Standard profile icons": "ไอคอนโปรไฟล์มาตรฐาน",
+  "Standard launcher icons": "ไอคอนเรียกใช้งานมาตรฐาน",
+  Robot: "หุ่นยนต์",
+  Sparkles: "ประกาย",
+  Knowledge: "ความรู้",
+  Book: "หนังสือ",
+  Support: "บริการช่วยเหลือ",
   "PNG, JPEG, or WebP. Maximum 2 MB.":
     "รองรับ PNG, JPEG หรือ WebP ขนาดไม่เกิน 2 MB",
   "Launcher icon": "ไอคอนเรียกใช้งาน",

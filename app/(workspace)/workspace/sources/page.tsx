@@ -347,17 +347,19 @@ export default async function SourcesPage({
               </Link>
             </div>
             {source.previewSummary ? (
-              <div className="mt-4 flex items-start gap-2 rounded-lg border border-indigo-200/70 bg-indigo-50/60 px-3 py-2.5 text-sm text-indigo-950 dark:border-indigo-900 dark:bg-indigo-950/30 dark:text-indigo-100">
+              <div className="mt-4 flex items-start gap-2 rounded-lg border border-indigo-300 bg-indigo-100 px-3 py-2.5 text-indigo-950 dark:border-indigo-700 dark:bg-indigo-950 dark:text-white">
                 <Sparkles
-                  className="mt-0.5 shrink-0"
+                  className="mt-0.5 shrink-0 text-indigo-700 dark:text-indigo-200"
                   size={16}
                   aria-hidden="true"
                 />
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-indigo-700 dark:text-indigo-300">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-indigo-800 dark:text-indigo-200">
                     AI preview
                   </p>
-                  <p className="mt-0.5 leading-6">{source.previewSummary}</p>
+                  <p className="mt-1 text-[15px] font-medium leading-6">
+                    {source.previewSummary}
+                  </p>
                 </div>
               </div>
             ) : null}

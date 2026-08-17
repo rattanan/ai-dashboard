@@ -9,6 +9,7 @@ import {
   extractMainHtml,
   extractSameDomainLinks,
   isPublicAddress,
+  pinnedAddressLookup,
   scanSharedFolder,
   SourceSecurityError,
   validatePublicWebUrl,
@@ -102,6 +103,28 @@ describe("Phase 4 shared-folder security and incrementality", () => {
 });
 
 describe("Phase 4 web-source SSRF controls", () => {
+  it("returns the pinned address shape requested by Node networking", async () => {
+    const lookup = pinnedAddressLookup("93.184.216.34", 4);
+
+    await expect(
+      new Promise((resolve, reject) =>
+        lookup("example.com", { all: true }, (error, addresses) => {
+          if (error) reject(error);
+          else resolve(addresses);
+        }),
+      ),
+    ).resolves.toEqual([{ address: "93.184.216.34", family: 4 }]);
+
+    await expect(
+      new Promise((resolve, reject) =>
+        lookup("example.com", { all: false }, (error, address, family) => {
+          if (error) reject(error);
+          else resolve({ address, family });
+        }),
+      ),
+    ).resolves.toEqual({ address: "93.184.216.34", family: 4 });
+  });
+
   it.each([
     "127.0.0.1",
     "10.0.0.1",

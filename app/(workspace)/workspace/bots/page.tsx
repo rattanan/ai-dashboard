@@ -6,6 +6,8 @@ import { requireAuthorization } from "@/server/auth/authorization";
 import { requirePermission } from "@/server/auth/permissions";
 import { authorizeResource } from "@/server/auth/resource-authorization";
 import { db } from "@/server/db";
+import { standardBotIconId } from "@/lib/bot-icons";
+import { StandardBotIcon } from "@/components/knowledge/standard-bot-icon";
 
 export default async function BotSelectionPage() {
   const context = await requireAuthorization();
@@ -51,7 +53,14 @@ export default async function BotSelectionPage() {
             className="group rounded-2xl border bg-card p-5 transition hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md motion-reduce:transform-none"
           >
             <div className="flex items-start gap-4">
-              {bot.avatarUrl ? (
+              {standardBotIconId(bot.avatarUrl) ? (
+                <span className="grid size-12 shrink-0 place-items-center rounded-xl bg-indigo-100 text-indigo-700">
+                  <StandardBotIcon
+                    id={standardBotIconId(bot.avatarUrl)!}
+                    className="size-6"
+                  />
+                </span>
+              ) : bot.avatarUrl ? (
                 <Image
                   src={bot.avatarUrl}
                   alt=""
