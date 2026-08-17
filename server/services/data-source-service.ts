@@ -151,21 +151,27 @@ export async function discoverDataSource(
   try {
     const schemas = await connector.listSchemas();
     if (!schemas.ok) return schemas;
-    const configuredOracleSchema =
+    const configuredSchema =
       source.type === "ORACLE"
         ? String(
             (source.connectionOptions as { schema?: string } | null)?.schema ??
               source.username ??
               "",
           ).toUpperCase()
-        : undefined;
-    const schemasToScan = configuredOracleSchema
-      ? schemas.data.filter((item) => item.name === configuredOracleSchema)
+        : source.type === "MYSQL"
+          ? source.databaseName
+          : undefined;
+    const schemasToScan = configuredSchema
+      ? schemas.data.filter(
+          (item) =>
+            item.name.toLocaleLowerCase() ===
+            configuredSchema.toLocaleLowerCase(),
+        )
       : schemas.data;
     if (!schemasToScan.length)
       return failure(
         "CONNECTION_FAILED",
-        "The configured Oracle schema is not accessible to this database user.",
+        "The configured database/schema is not accessible to this database user.",
       );
     const schemaNames = schemasToScan.map((item) => item.name);
     const [tables, columns, relationships] = await Promise.all([
@@ -596,6 +602,111 @@ export async function createDatabaseDataSource(
   return success({
     id: source.id,
     status: source.status,
+    hasStoredCredential: true,
+  });
+}
+
+export async function updateDatabaseDataSource(
+  context: AuthorizationContext,
+  input: {
+    dataSourceId: string;
+    type: "MYSQL" | "POSTGRESQL" | "MSSQL" | "ORACLE";
+    name: string;
+    host: string;
+    port: number;
+    databaseName?: string;
+    username: string;
+    password?: string;
+    sslEnabled: boolean;
+    connectionOptions: Record<string, string | number | boolean>;
+    connectionType?: "service_name" | "sid";
+    serviceName?: string;
+    sid?: string;
+    schema?: string;
+    sslMode?: "disable" | "prefer" | "require";
+    connectionTimeoutMs?: number;
+  },
+) {
+  const source = await db.dataSource.findFirst({
+    where: { id: input.dataSourceId, workspaceId: context.workspaceId },
+  });
+  if (!source) return failure("NOT_FOUND", "Data source not found.");
+  if (source.type !== input.type)
+    return failure(
+      "VALIDATION_ERROR",
+      "The database type cannot be changed after creation.",
+    );
+
+  const databaseName =
+    input.type === "ORACLE"
+      ? (input.serviceName ?? input.sid ?? null)
+      : (input.databaseName ?? null);
+  const connectionOptions = (input.type === "ORACLE"
+    ? {
+        connectionType: input.connectionType!,
+        serviceName: input.serviceName,
+        sid: input.sid,
+        schema: input.schema,
+        sslMode: input.sslMode,
+        connectionTimeoutMs: input.connectionTimeoutMs,
+      }
+    : input.connectionOptions) as Prisma.InputJsonValue;
+  const connectionChanged =
+    source.host !== input.host ||
+    source.port !== input.port ||
+    source.databaseName !== databaseName ||
+    source.username !== input.username ||
+    source.sslEnabled !== input.sslEnabled ||
+    fingerprint(source.connectionOptions) !== fingerprint(connectionOptions) ||
+    Boolean(input.password);
+  const encrypted = input.password
+    ? encryptionService().encrypt(JSON.stringify({ password: input.password }))
+    : undefined;
+
+  const updated = await db.$transaction(async (tx) => {
+    const saved = await tx.dataSource.update({
+      where: { id: source.id },
+      data: {
+        name: input.name,
+        host: input.host,
+        port: input.port,
+        databaseName,
+        username: input.username,
+        sslEnabled: input.sslEnabled,
+        connectionOptions,
+        ...(connectionChanged
+          ? {
+              status: "DRAFT" as const,
+              sourceStatus: "DRAFT" as const,
+              lastTestedAt: null,
+            }
+          : {}),
+        ...(encrypted
+          ? {
+              credential: {
+                upsert: { create: encrypted, update: encrypted },
+              },
+            }
+          : {}),
+      },
+    });
+    await tx.auditLog.create({
+      data: {
+        organizationId: context.organizationId,
+        workspaceId: context.workspaceId,
+        actorId: context.userId,
+        action: "DATA_SOURCE_UPDATED",
+        entityType: "DataSource",
+        entityId: source.id,
+        outcome: "SUCCESS",
+        metadata: { connectionChanged, credentialRotated: Boolean(encrypted) },
+      },
+    });
+    return saved;
+  });
+  return success({
+    id: updated.id,
+    status: updated.status,
     hasStoredCredential: true,
   });
 }

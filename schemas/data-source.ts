@@ -65,6 +65,52 @@ export const databaseConnectionSchema = z.discriminatedUnion("type", [
     }),
 ]);
 
+const databaseConnectionUpdateBase = baseDatabaseConnectionSchema
+  .omit({ password: true })
+  .extend({
+    dataSourceId: z.string().min(1),
+    password: z.string().max(512).optional(),
+  });
+
+export const databaseConnectionUpdateSchema = z.discriminatedUnion("type", [
+  databaseConnectionUpdateBase.extend({
+    type: z.enum(["MYSQL", "POSTGRESQL", "MSSQL"]),
+    databaseName: z.string().trim().min(1).max(128),
+    sslEnabled: z.coerce.boolean().default(false),
+  }),
+  databaseConnectionUpdateBase
+    .extend({
+      type: z.literal("ORACLE"),
+      databaseName: z.string().trim().min(1).max(128).optional(),
+      sslEnabled: z.coerce.boolean().default(false),
+      connectionType: z.enum(["service_name", "sid"]),
+      serviceName: z.string().trim().min(1).max(128).optional(),
+      sid: z.string().trim().min(1).max(128).optional(),
+      schema: z.string().trim().min(1).max(128).optional(),
+      sslMode: z.enum(["disable", "prefer", "require"]).default("disable"),
+      connectionTimeoutMs: z.coerce
+        .number()
+        .int()
+        .min(1_000)
+        .max(60_000)
+        .default(15_000),
+    })
+    .superRefine((value, ctx) => {
+      if (value.connectionType === "service_name" && !value.serviceName)
+        ctx.addIssue({
+          code: "custom",
+          message: "Service name is required",
+          path: ["serviceName"],
+        });
+      if (value.connectionType === "sid" && !value.sid)
+        ctx.addIssue({
+          code: "custom",
+          message: "SID is required",
+          path: ["sid"],
+        });
+    }),
+]);
+
 export const dashboardObjectiveSchema = z.object({
   dataSourceId: z.string().min(1),
   dashboardId: z.string().optional(),

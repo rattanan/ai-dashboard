@@ -59,6 +59,7 @@ describe("Phase 6 Legacy API registry contracts", () => {
   it.each([
     ["NONE", {}],
     ["API_KEY", { apiKeyHeaderName: "X-API-Key", apiKey: "key-value" }],
+    ["QUERY_API_KEY", { queryApiKeyName: "appid", queryApiKey: "key-value" }],
     ["BEARER", { bearerToken: "bearer-value" }],
     ["BASIC", { basicUsername: "readonly", basicPassword: "password-value" }],
     [
@@ -146,6 +147,34 @@ describe("Phase 6 Legacy API registry contracts", () => {
         secret: null,
       }),
     ).toMatchObject({ ok: false });
+  });
+
+  it("injects an encrypted query API key after public query parameters", () => {
+    const result = buildLegacyApiRequest({
+      baseUrl: "https://api.openweathermap.org",
+      endpointPath: "/data/2.5/weather",
+      method: "GET",
+      definitions: [
+        {
+          name: "q",
+          label: "City",
+          description: "City name",
+          location: "QUERY",
+          type: "STRING",
+          required: true,
+        },
+      ],
+      supplied: { q: "Bangkok" },
+      requestHeaders: {},
+      bodyTemplate: null,
+      secret: { queryApiKeyName: "appid", queryApiKey: "encrypted-secret" },
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok || !result.data.request) return;
+    expect(result.data.request.url).toBe(
+      "https://api.openweathermap.org/data/2.5/weather?q=Bangkok&appid=encrypted-secret",
+    );
+    expect(result.data.request.headers).toEqual({});
   });
 
   it("maps registered response paths without prototype traversal", () => {

@@ -32,6 +32,7 @@ import { ServerOperationButton } from "./server-operation-button";
 import {
   createDatabaseDataSourceAction,
   saveDataScopeAction,
+  updateDatabaseDataSourceAction,
 } from "@/features/data-sources/actions";
 
 type SourceType = "MYSQL" | "POSTGRESQL" | "MSSQL" | "ORACLE" | "EXCEL";
@@ -45,6 +46,7 @@ type WizardSource = {
   databaseName?: string | null;
   username?: string | null;
   sslEnabled: boolean;
+  connectionOptions?: Record<string, unknown>;
   fileName?: string;
   sheetNames?: string[];
   schemas: {
@@ -348,7 +350,7 @@ export function SetupWizard({
                   );
                 }
                 run(async () => {
-                  const result = await createDatabaseDataSourceAction({
+                  const payload = {
                     type: selectedType,
                     name: values.get("name"),
                     host: values.get("host"),
@@ -364,9 +366,14 @@ export function SetupWizard({
                     schema: values.get("schema") || undefined,
                     sslMode: values.get("sslMode"),
                     connectionTimeoutMs: values.get("connectionTimeoutMs"),
-                  });
+                  };
+                  const result = source?.id
+                    ? await updateDatabaseDataSourceAction({
+                        ...payload,
+                        dataSourceId: source.id,
+                      })
+                    : await createDatabaseDataSourceAction(payload);
                   if (!result.ok) return setMessage(result.error.message);
-                  form.reset();
                   go(4, { id: result.data.id });
                 });
               }}
@@ -497,15 +504,19 @@ export function SetupWizard({
               <Field
                 label="Password"
                 htmlFor="password"
-                required
-                hint="Cleared from the form immediately after saving."
+                required={!source?.id}
+                hint={
+                  source?.id
+                    ? "Leave blank to keep the current encrypted password."
+                    : "Cleared from the form immediately after saving."
+                }
               >
                 <Input
                   id="password"
                   name="password"
                   type="password"
                   autoComplete="new-password"
-                  required
+                  required={!source?.id}
                 />
               </Field>
               <div className="flex items-center gap-3 pt-6">
@@ -534,7 +545,11 @@ export function SetupWizard({
                       id="connectionOptions"
                       name="connectionOptions"
                       className="font-mono text-xs"
-                      defaultValue="{}"
+                      defaultValue={JSON.stringify(
+                        source?.connectionOptions ?? {},
+                        null,
+                        2,
+                      )}
                     />
                   </Field>
                 </div>
@@ -579,7 +594,7 @@ export function SetupWizard({
                 {pending ? (
                   <LoaderCircle className="animate-spin" size={18} />
                 ) : null}
-                Encrypt and save
+                {source?.id ? "Update connection" : "Encrypt and save"}
               </Button>
             </form>
           )}

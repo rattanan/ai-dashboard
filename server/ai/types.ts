@@ -20,6 +20,7 @@ export type AIRequest<T> = {
   systemPrompt: string;
   userPrompt: string;
   promptVersion: string;
+  timeoutMs?: number;
   onProgress?: (progress: AIStreamProgress) => void | Promise<void>;
 };
 

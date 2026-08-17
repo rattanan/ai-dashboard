@@ -104,9 +104,22 @@ export const legacyApiRegistrySchema = z
     bodyTemplate: z.unknown().nullable(),
     responseSchema: z.record(z.string(), z.unknown()),
     responseMapping: z.record(z.string(), z.string().trim().min(1).max(500)),
-    authType: z.enum(["NONE", "API_KEY", "BEARER", "BASIC", "CUSTOM_HEADER"]),
+    authType: z.enum([
+      "NONE",
+      "API_KEY",
+      "QUERY_API_KEY",
+      "BEARER",
+      "BASIC",
+      "CUSTOM_HEADER",
+    ]),
     apiKeyHeaderName: headerNameSchema.optional(),
     apiKey: z.string().max(8_000).optional(),
+    queryApiKeyName: z
+      .string()
+      .trim()
+      .regex(/^[A-Za-z][A-Za-z0-9_.-]{0,127}$/)
+      .optional(),
+    queryApiKey: z.string().max(8_000).optional(),
     bearerToken: z.string().max(16_000).optional(),
     basicUsername: z.string().max(1_000).optional(),
     basicPassword: z.string().max(8_000).optional(),
@@ -190,6 +203,16 @@ export const legacyApiRegistrySchema = z
         code: "custom",
         path: ["apiKey"],
         message: "API key and header name are required",
+      });
+    if (
+      needsCredential &&
+      value.authType === "QUERY_API_KEY" &&
+      (!value.queryApiKey || !value.queryApiKeyName)
+    )
+      context.addIssue({
+        code: "custom",
+        path: ["queryApiKey"],
+        message: "API key and query parameter name are required",
       });
     if (needsCredential && value.authType === "BEARER" && !value.bearerToken)
       context.addIssue({

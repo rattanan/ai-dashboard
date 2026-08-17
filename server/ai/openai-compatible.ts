@@ -451,11 +451,15 @@ export class OpenAICompatibleProvider implements AIProvider {
     for (let attempt = 0; attempt <= maximumAttempts; attempt++) {
       const startedAt = performance.now();
       const controller = new AbortController();
+      const absoluteTimeoutMs = Math.min(
+        this.configuration.timeoutMs,
+        request.timeoutMs ?? this.configuration.timeoutMs,
+      );
       let timeoutKind: "absolute" | "inactivity" | undefined;
       const absoluteTimer = setTimeout(() => {
         timeoutKind = "absolute";
         controller.abort();
-      }, this.configuration.timeoutMs);
+      }, absoluteTimeoutMs);
       let inactivityTimer: ReturnType<typeof setTimeout> | undefined;
       const resetInactivityTimeout = () => {
         if (inactivityTimer) clearTimeout(inactivityTimer);

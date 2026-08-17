@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import {
   databaseConnectionSchema,
+  databaseConnectionUpdateSchema,
   dashboardAppearanceSchema,
   dashboardObjectiveSchema,
   deleteDataSourceSchema,
@@ -23,6 +24,7 @@ import {
 import {
   createDatabaseDataSource,
   deleteDataSource,
+  updateDatabaseDataSource,
 } from "@/server/services/data-source-service";
 import { db } from "@/server/db";
 import type { Prisma } from "@/generated/prisma/client";
@@ -48,6 +50,23 @@ export async function createDatabaseDataSourceAction(input: unknown) {
       { fieldErrors: parsed.error.flatten().fieldErrors },
     );
   return createDatabaseDataSource(context, parsed.data);
+}
+
+export async function updateDatabaseDataSourceAction(input: unknown) {
+  const context = await requireAuthorization();
+  await requirePermission(context, "datasource.update");
+  const parsed = databaseConnectionUpdateSchema.safeParse(input);
+  if (!parsed.success)
+    return failure(
+      "VALIDATION_ERROR",
+      "Please correct the connection details.",
+      { fieldErrors: parsed.error.flatten().fieldErrors },
+    );
+  await requireDataSourceAccess(context, parsed.data.dataSourceId, "manage");
+  const result = await updateDatabaseDataSource(context, parsed.data);
+  if (result.ok)
+    revalidatePath(`/workspace/data-sources/${parsed.data.dataSourceId}`);
+  return result;
 }
 
 export async function deleteDataSourceAction(
@@ -109,16 +128,20 @@ export async function saveDataScopeAction(
       where: { dataSourceId, tables: { some: { id: { in: tableIds } } } },
       data: { selected: true },
     });
-    if (source.type === "ORACLE")
-      await tx.dataSource.update({
-        where: { id: source.id },
-        data: {
+    await tx.dataSource.update({
+      where: { id: source.id },
+      data: {
+        sourceStatus: tableIds.length ? "READY" : "DRAFT",
+        ...(source.type === "ORACLE"
+          ? {
           connectionOptions: {
             ...connectionOptions,
             autoPrioritizeTables,
           } as Prisma.InputJsonValue,
-        },
-      });
+            }
+          : {}),
+      },
+    });
   });
   return success({ selected: tableIds.length });
 }
@@ -191,7 +214,10 @@ export async function saveDatabaseScopeAction(
     });
     await tx.dataSource.update({
       where: { id: source.id },
-      data: { sampleDataEnabled: parsed.data.sampleDataEnabled },
+      data: {
+        sampleDataEnabled: parsed.data.sampleDataEnabled,
+        sourceStatus: selectedIds.length ? "READY" : "DRAFT",
+      },
     });
     await tx.auditLog.create({
       data: {

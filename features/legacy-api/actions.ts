@@ -15,6 +15,7 @@ import {
   generateLegacyApiToolDefinition,
   saveLegacyApi,
   testLegacyApi,
+  testLegacyApiDraft,
 } from "@/server/services/legacy-api-service";
 import { failure } from "@/types/result";
 import { updateSourceAssignment } from "@/server/services/unified-source-service";
@@ -29,9 +30,15 @@ function json(value: FormDataEntryValue | null, fallback: unknown) {
   }
 }
 
-export async function saveLegacyApiAction(_state: unknown, formData: FormData) {
-  const context = await requireAuthorization();
-  await requirePermission(context, "legacy_api.manage");
+function inferredAllowedDomains(baseUrl: FormDataEntryValue | null) {
+  try {
+    return [new URL(String(baseUrl ?? "")).hostname.toLowerCase()];
+  } catch {
+    return [];
+  }
+}
+
+function parseRegistryFormData(formData: FormData) {
   const parsedJson = {
     requestHeaders: json(formData.get("requestHeadersJson"), {}),
     parameters: json(formData.get("parametersJson"), []),
@@ -46,20 +53,25 @@ export async function saveLegacyApiAction(_state: unknown, formData: FormData) {
     );
   const parsed = legacyApiRegistrySchema.safeParse({
     ...Object.fromEntries(formData),
-    allowedDomains: String(formData.get("allowedDomains") ?? "")
-      .split(/[\n,]/)
-      .map((item) => item.trim())
-      .filter(Boolean),
+    allowedDomains: inferredAllowedDomains(formData.get("baseUrl")),
     requestHeaders: parsedJson.requestHeaders.value,
     parameters: parsedJson.parameters.value,
     bodyTemplate: parsedJson.bodyTemplate.value,
     responseSchema: parsedJson.responseSchema.value,
     responseMapping: parsedJson.responseMapping.value,
   });
-  if (!parsed.success)
-    return failure("VALIDATION_ERROR", "Check the Legacy API definition.", {
-      fieldErrors: parsed.error.flatten().fieldErrors,
-    });
+  return parsed.success
+    ? { ok: true as const, data: parsed.data }
+    : failure("VALIDATION_ERROR", "Check the API tool fields.", {
+        fieldErrors: parsed.error.flatten().fieldErrors,
+      });
+}
+
+export async function saveLegacyApiAction(_state: unknown, formData: FormData) {
+  const context = await requireAuthorization();
+  await requirePermission(context, "legacy_api.manage");
+  const parsed = parseRegistryFormData(formData);
+  if (!parsed.ok) return parsed;
   const assignment = sourceAssignmentSchema.safeParse({
     sourceType: "API_TOOL",
     sourceId: String(formData.get("legacyApiId") ?? "pending"),
@@ -89,6 +101,24 @@ export async function saveLegacyApiAction(_state: unknown, formData: FormData) {
     revalidatePath("/workspace/sources");
   }
   return result;
+}
+
+export async function testLegacyApiDraftAction(
+  _state: unknown,
+  formData: FormData,
+) {
+  const context = await requireAuthorization();
+  await requirePermission(context, "legacy_api.manage");
+  const parsed = parseRegistryFormData(formData);
+  const parameters = json(formData.get("testParametersJson"), {});
+  if (!parsed.ok) return parsed;
+  if (!parameters.ok || !parameters.value || Array.isArray(parameters.value))
+    return failure("VALIDATION_ERROR", "Provide valid test input values.");
+  return testLegacyApiDraft(
+    context,
+    parsed.data,
+    parameters.value as Record<string, string | number | boolean>,
+  );
 }
 
 export async function testLegacyApiAction(_state: unknown, formData: FormData) {

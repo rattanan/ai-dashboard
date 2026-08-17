@@ -37,6 +37,12 @@ export default async function NewDataSourcePage({
         databaseName: source.databaseName,
         username: source.username,
         sslEnabled: source.sslEnabled,
+        connectionOptions:
+          source.connectionOptions &&
+          typeof source.connectionOptions === "object" &&
+          !Array.isArray(source.connectionOptions)
+            ? source.connectionOptions
+            : {},
         fileName: source.file?.originalName,
         sheetNames: Array.isArray(source.file?.sheetNames)
           ? source.file.sheetNames.map(String)

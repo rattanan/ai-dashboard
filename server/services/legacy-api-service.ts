@@ -34,6 +34,8 @@ import { sanitizeSampleCell } from "./sensitive-data";
 type ApiSecret = {
   apiKeyHeaderName?: string;
   apiKey?: string;
+  queryApiKeyName?: string;
+  queryApiKey?: string;
   bearerToken?: string;
   basicUsername?: string;
   basicPassword?: string;
@@ -58,6 +60,15 @@ function credentialInput(input: LegacyApiRegistryInput): ApiSecret | null {
   if (input.authType === "NONE") return null;
   if (input.authType === "API_KEY" && input.apiKey && input.apiKeyHeaderName)
     return { apiKey: input.apiKey, apiKeyHeaderName: input.apiKeyHeaderName };
+  if (
+    input.authType === "QUERY_API_KEY" &&
+    input.queryApiKey &&
+    input.queryApiKeyName
+  )
+    return {
+      queryApiKey: input.queryApiKey,
+      queryApiKeyName: input.queryApiKeyName,
+    };
   if (input.authType === "BEARER" && input.bearerToken)
     return { bearerToken: input.bearerToken };
   if (input.authType === "BASIC" && input.basicUsername && input.basicPassword)
@@ -317,6 +328,11 @@ export function buildLegacyApiRequest(input: {
   ))
     if (definition.name in values)
       url.searchParams.set(definition.name, String(values[definition.name]));
+  if (input.secret?.queryApiKey && input.secret.queryApiKeyName)
+    url.searchParams.set(
+      input.secret.queryApiKeyName,
+      input.secret.queryApiKey,
+    );
   const outboundHeaders = { ...input.requestHeaders };
   if (input.secret?.apiKey && input.secret.apiKeyHeaderName)
     outboundHeaders[input.secret.apiKeyHeaderName] = input.secret.apiKey;
@@ -391,6 +407,108 @@ export function redactLegacyApiSecretValue(value: unknown, secrets: string[]) {
       secret.length >= 4 ? current.replaceAll(secret, "[REDACTED]") : current,
     value,
   );
+}
+
+async function draftSecret(
+  context: AuthorizationContext,
+  input: LegacyApiRegistryInput,
+) {
+  const supplied = credentialInput(input);
+  if (supplied) return supplied;
+  if (!input.legacyApiId || !input.credentialPresent) return null;
+  const existing = await db.legacyApi.findFirst({
+    where: {
+      id: input.legacyApiId,
+      organizationId: context.organizationId,
+      workspaceId: context.workspaceId,
+      authType: input.authType,
+    },
+    include: { credential: true },
+  });
+  if (!existing?.credential) return null;
+  try {
+    return JSON.parse(
+      encryptionService().decrypt(existing.credential),
+    ) as ApiSecret;
+  } catch {
+    return null;
+  }
+}
+
+export async function testLegacyApiDraft(
+  context: AuthorizationContext,
+  input: LegacyApiRegistryInput,
+  supplied: Record<string, string | number | boolean>,
+) {
+  await requirePermission(context, "legacy_api.manage");
+  const secret = await draftSecret(context, input);
+  if (input.authType !== "NONE" && !secret)
+    return failure(
+      "VALIDATION_ERROR",
+      "Provide the API credential before testing.",
+    );
+  try {
+    await validatePublicWebUrl(input.baseUrl, input.allowedDomains);
+    const built = buildLegacyApiRequest({
+      baseUrl: input.baseUrl,
+      endpointPath: input.endpointPath,
+      method: input.method,
+      definitions: input.parameters,
+      supplied,
+      requestHeaders: input.requestHeaders,
+      bodyTemplate: input.bodyTemplate,
+      secret,
+    });
+    if (!built.ok) return built;
+    if (built.data.missing.length)
+      return failure(
+        "VALIDATION_ERROR",
+        `Provide ${built.data.missing.map((item) => item.label).join(", ")} before testing.`,
+      );
+    const started = performance.now();
+    const response = await fetchPublicJsonApi({
+      url: built.data.request!.url,
+      allowedDomains: input.allowedDomains,
+      method: input.method,
+      headers: built.data.request!.headers,
+      body: built.data.request!.body,
+      timeoutMs: input.timeoutMs,
+      maxBytes: input.maxResponseBytes,
+      maxRedirects: input.maxRedirects,
+    });
+    const ajv = new Ajv({ allErrors: true, strict: false });
+    if (!ajv.validate(input.responseSchema as object, response.payload))
+      return failure(
+        "VALIDATION_ERROR",
+        "The API response did not match the output schema.",
+      );
+    const policy = await getEffectiveAiPrivacyPolicy(context.organizationId);
+    const secretValues = secret
+      ? Object.entries(secret)
+          .filter(
+            ([name, value]) =>
+              typeof value === "string" && !name.toLowerCase().endsWith("name"),
+          )
+          .map(([, value]) => value as string)
+      : [];
+    const preview = boundedMaskedPayload(
+      mapLegacyApiPayload(response.payload, input.responseMapping),
+      policy,
+      secretValues,
+    );
+    return success({
+      status: response.status,
+      durationMs: Math.round(performance.now() - started),
+      summary: `${input.name} returned HTTP ${response.status}. Review the output, then save the tool.`,
+      preview,
+    });
+  } catch (error) {
+    const message =
+      error instanceof SafeApiError
+        ? error.message
+        : "The API could not be tested safely.";
+    return failure("VALIDATION_ERROR", message);
+  }
 }
 
 function boundedMaskedPayload(

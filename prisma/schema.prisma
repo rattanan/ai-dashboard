@@ -175,6 +175,7 @@ enum MetadataRefreshStatus {
 enum LegacyApiAuthType {
   NONE
   API_KEY
+  QUERY_API_KEY
   BEARER
   BASIC
   CUSTOM_HEADER

@@ -190,6 +190,29 @@ describe("OpenAI-compatible provider", () => {
     expect(result.error.message).toContain("did not begin responding");
   });
 
+  it("honors a shorter timeout requested by a bounded operation", async () => {
+    const fetchMock = vi.fn(
+      (_: string, init?: RequestInit) =>
+        new Promise((_, reject) => {
+          init?.signal?.addEventListener("abort", () =>
+            reject(new DOMException("aborted", "AbortError")),
+          );
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await new OpenAICompatibleProvider(
+      configuration,
+    ).generateStructuredOutput({ ...request(), timeoutMs: 20 });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe("AI_TIMEOUT");
+    expect(result.error.diagnostics).toMatchObject({
+      timeoutKind: "absolute",
+    });
+  });
+
   it("reports an inactivity timeout after a provider stream stalls", async () => {
     const encoder = new TextEncoder();
     const body = new ReadableStream<Uint8Array>({

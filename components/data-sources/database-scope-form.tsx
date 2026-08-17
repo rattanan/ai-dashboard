@@ -140,7 +140,9 @@ export function DatabaseScopeForm({
         </div>
         <Feedback state={enrichState} />
         <Button type="submit" variant="outline" disabled={enrichPending}>
-          {enrichPending ? "Generating…" : "Generate semantic descriptions"}
+          {enrichPending
+            ? "Generating… (up to 45 seconds)"
+            : "Generate semantic descriptions"}
         </Button>
       </form>
     </div>

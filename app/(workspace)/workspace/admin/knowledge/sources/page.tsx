@@ -116,8 +116,8 @@ export default async function KnowledgeSourcesPage() {
                   </Badge>
                 </div>
                 {source.previewSummary ? (
-                  <div className="rounded-lg border border-indigo-200/70 bg-indigo-50/60 p-3 text-sm text-indigo-950 dark:border-indigo-900 dark:bg-indigo-950/30 dark:text-indigo-100">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-indigo-700 dark:text-indigo-300">
+                  <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-3 text-sm text-slate-900">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-indigo-800">
                       AI preview
                     </p>
                     <p className="mt-1 leading-6">{source.previewSummary}</p>
