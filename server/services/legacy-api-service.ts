@@ -643,6 +643,14 @@ export async function invokeLegacyApi(
           completedAt: new Date(),
         },
       }),
+      db.legacyApi.update({
+        where: { id: api.id },
+        data: {
+          previewSummary: summary.slice(0, 500),
+          previewSummaryAt: new Date(),
+          previewSummaryModel: summarized.ok ? summarized.data.model : null,
+        },
+      }),
       db.auditLog.create({
         data: {
           organizationId: context.organizationId,

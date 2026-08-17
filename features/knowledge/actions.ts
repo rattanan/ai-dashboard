@@ -2,17 +2,27 @@
 
 import type { Prisma } from "@/generated/prisma/client";
 import { revalidatePath } from "next/cache";
+import path from "node:path";
 import { requireAuthorization } from "@/server/auth/authorization";
 import { requirePermission } from "@/server/auth/permissions";
 import { db } from "@/server/db";
 import {
   botConfigurationSchema,
+  botAppearanceSchema,
   knowledgeRackSchema,
   resourceIdSchema,
 } from "@/schemas/knowledge";
 import { retryDocumentIndex } from "@/server/services/knowledge-service";
 import { failure, success } from "@/types/result";
 import { authorizeResource } from "@/server/auth/resource-authorization";
+import { env } from "@/schemas/env";
+import { LocalObjectStorageService } from "@/server/storage/local-storage";
+import {
+  botAssetUrl,
+  detectBotImageType,
+  localBotAssetKey,
+  MAX_BOT_IMAGE_BYTES,
+} from "@/server/services/bot-assets";
 
 function botFormValues(formData: FormData) {
   return {
@@ -157,6 +167,8 @@ export async function saveBotAction(_state: unknown, formData: FormData) {
         fontFamily: parsed.data.fontFamily,
         colorMode: parsed.data.colorMode,
         launcherIcon: parsed.data.launcherIcon,
+        widgetSize: parsed.data.widgetSize,
+        launcherSize: parsed.data.launcherSize,
         windowPosition: parsed.data.windowPosition,
         placeholder: parsed.data.placeholder,
         brandingEnabled: parsed.data.brandingEnabled,
@@ -296,6 +308,194 @@ export async function saveBotAction(_state: unknown, formData: FormData) {
     if (error instanceof Error && error.message === "BOT_NOT_FOUND")
       return failure("NOT_FOUND", "Bot not found.");
     return failure("CONFLICT", "A bot with this name already exists.");
+  }
+}
+
+function jsonObject(value: Prisma.JsonValue | undefined) {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value
+    : {};
+}
+
+async function imageUpload(formData: FormData, name: string) {
+  const file = formData.get(name);
+  if (!(file instanceof File) || file.size === 0) return null;
+  if (file.size > MAX_BOT_IMAGE_BYTES) throw new Error("BOT_IMAGE_TOO_LARGE");
+  const bytes = Buffer.from(await file.arrayBuffer());
+  const imageType = detectBotImageType(bytes);
+  if (!imageType) throw new Error("BOT_IMAGE_INVALID");
+  return { bytes, imageType, originalName: file.name };
+}
+
+export async function saveBotAppearanceAction(
+  _state: unknown,
+  formData: FormData,
+) {
+  const context = await requireAuthorization();
+  await requirePermission(context, "bot.manage");
+  const parsed = botAppearanceSchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success)
+    return failure("VALIDATION_ERROR", "Check the appearance settings.", {
+      fieldErrors: parsed.error.flatten().fieldErrors,
+    });
+
+  let avatarUpload;
+  let launcherUpload;
+  try {
+    [avatarUpload, launcherUpload] = await Promise.all([
+      imageUpload(formData, "avatarFile"),
+      imageUpload(formData, "launcherIconFile"),
+    ]);
+  } catch (error) {
+    return failure(
+      "VALIDATION_ERROR",
+      error instanceof Error && error.message === "BOT_IMAGE_TOO_LARGE"
+        ? "Each image must be 2 MB or smaller."
+        : "Use a PNG, JPEG, or WebP image.",
+    );
+  }
+
+  const storage = new LocalObjectStorageService(
+    path.resolve(env().LOCAL_STORAGE_PATH),
+  );
+  const storedKeys: string[] = [];
+  try {
+    const storedAvatar = avatarUpload
+      ? await storage.put({
+          bytes: avatarUpload.bytes,
+          originalName: avatarUpload.originalName,
+        })
+      : null;
+    if (storedAvatar) storedKeys.push(storedAvatar.key);
+    const storedLauncher = launcherUpload
+      ? await storage.put({
+          bytes: launcherUpload.bytes,
+          originalName: launcherUpload.originalName,
+        })
+      : null;
+    if (storedLauncher) storedKeys.push(storedLauncher.key);
+
+    const saved = await db.$transaction(async (tx) => {
+      const bot = await tx.bot.findFirst({
+        where: {
+          id: parsed.data.botId,
+          organizationId: context.organizationId,
+        },
+      });
+      if (!bot) throw new Error("BOT_NOT_FOUND");
+      const version = bot.currentVersion + 1;
+      const avatarUrl = parsed.data.removeAvatar
+        ? null
+        : storedAvatar && avatarUpload
+          ? botAssetUrl(
+              bot.id,
+              storedAvatar.key,
+              avatarUpload.imageType.extension,
+            )
+          : bot.avatarUrl;
+      const launcherIcon = parsed.data.removeLauncherIcon
+        ? null
+        : storedLauncher && launcherUpload
+          ? botAssetUrl(
+              bot.id,
+              storedLauncher.key,
+              launcherUpload.imageType.extension,
+            )
+          : bot.launcherIcon;
+      const appearance = {
+        primaryColor: parsed.data.primaryColor,
+        headerColor: parsed.data.headerColor,
+        chatBubbleColor: parsed.data.chatBubbleColor,
+        fontFamily: parsed.data.fontFamily,
+        colorMode: parsed.data.colorMode,
+        widgetSize: parsed.data.widgetSize,
+        launcherSize: parsed.data.launcherSize,
+        windowPosition: parsed.data.windowPosition,
+        brandingEnabled: parsed.data.brandingEnabled,
+        avatarUrl,
+        launcherIcon,
+      };
+      const previousVersion = await tx.botVersion.findUnique({
+        where: {
+          botId_version: { botId: bot.id, version: bot.currentVersion },
+        },
+        select: { configuration: true },
+      });
+      const updated = await tx.bot.update({
+        where: { id: bot.id },
+        data: { ...appearance, currentVersion: version },
+      });
+      await tx.botVersion.create({
+        data: {
+          botId: bot.id,
+          version,
+          configuration: {
+            ...jsonObject(previousVersion?.configuration),
+            ...appearance,
+            currentVersion: version,
+          } as Prisma.InputJsonValue,
+          createdById: context.userId,
+        },
+      });
+      await tx.auditLog.create({
+        data: {
+          organizationId: context.organizationId,
+          workspaceId: context.workspaceId,
+          actorId: context.userId,
+          action: "BOT_APPEARANCE_UPDATED",
+          entityType: "Bot",
+          entityId: bot.id,
+          entityName: bot.name,
+          beforeValue: {
+            version: bot.currentVersion,
+            avatarUrl: bot.avatarUrl,
+            launcherIcon: bot.launcherIcon,
+          },
+          afterValue: {
+            version,
+            widgetSize: updated.widgetSize,
+            launcherSize: updated.launcherSize,
+            colorMode: updated.colorMode,
+          },
+        },
+      });
+      return {
+        id: updated.id,
+        version,
+        avatarUrl: updated.avatarUrl,
+        launcherIcon: updated.launcherIcon,
+        previousAvatarUrl: bot.avatarUrl,
+        previousLauncherIcon: bot.launcherIcon,
+      };
+    });
+
+    const activeKeys = new Set(
+      [saved.avatarUrl, saved.launcherIcon]
+        .map(localBotAssetKey)
+        .filter((key): key is string => Boolean(key)),
+    );
+    await Promise.allSettled(
+      [saved.previousAvatarUrl, saved.previousLauncherIcon]
+        .map(localBotAssetKey)
+        .filter(
+          (key): key is string =>
+            Boolean(key) && !activeKeys.has(key as string),
+        )
+        .map((key) => storage.delete(key)),
+    );
+    revalidatePath(`/workspace/admin/bots/${saved.id}`);
+    revalidatePath("/workspace/admin/bots");
+    revalidatePath("/workspace/bots");
+    return success({
+      avatarUrl: saved.avatarUrl,
+      launcherIcon: saved.launcherIcon,
+      version: saved.version,
+    });
+  } catch (error) {
+    await Promise.allSettled(storedKeys.map((key) => storage.delete(key)));
+    if (error instanceof Error && error.message === "BOT_NOT_FOUND")
+      return failure("NOT_FOUND", "Bot not found.");
+    return failure("CONFLICT", "The appearance settings could not be saved.");
   }
 }
 

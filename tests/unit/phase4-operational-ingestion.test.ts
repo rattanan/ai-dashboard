@@ -7,6 +7,7 @@ import { recoverStaleOperations } from "@/packages/knowledge/recover-operations"
 import {
   domainAllowed,
   extractMainHtml,
+  extractSameDomainLinks,
   isPublicAddress,
   scanSharedFolder,
   SourceSecurityError,
@@ -153,6 +154,20 @@ describe("Phase 4 web-source SSRF controls", () => {
     expect(extracted).not.toContain("menu");
     expect(extracted).not.toContain("legal");
   });
+
+  it("extracts unique same-host links and ignores other domains", () => {
+    const links = extractSameDomainLinks(
+      `<main>
+        <a href="/guide">Guide</a>
+        <a href="https://docs.example.com/guide#intro">Duplicate</a>
+        <a href="https://other.example.com/guide">Other host</a>
+        <a href="mailto:owner@example.com">Mail</a>
+      </main>`,
+      "https://docs.example.com/start",
+      "docs.example.com",
+    );
+    expect(links).toEqual(["https://docs.example.com/guide"]);
+  });
 });
 
 describe("Phase 4 worker recovery and bounded concurrency", () => {
@@ -187,6 +202,11 @@ describe("Phase 4 worker recovery and bounded concurrency", () => {
     });
     expect(enqueueIndex).toHaveBeenCalledWith("index-1");
     expect(enqueueRefresh).toHaveBeenCalledWith("source-1", "refresh-1");
+    expect(
+      query.mock.calls.some(([sql]) =>
+        sql.includes("status = 'QUEUED'\n          AND \"updatedAt\" < $1"),
+      ),
+    ).toBe(true);
   });
 
   it("caps worker concurrency at fifty under load-oriented configuration", () => {

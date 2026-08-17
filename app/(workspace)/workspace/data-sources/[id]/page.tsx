@@ -5,6 +5,7 @@ import {
   Database,
   KeyRound,
   MessageSquareText,
+  Sparkles,
   Table2,
 } from "lucide-react";
 import { requireAuthorization } from "@/server/auth/authorization";
@@ -63,6 +64,22 @@ export default async function DataSourceDetailPage({
         description="Credentials remain encrypted and are never returned by this page."
         action={<DataSourceStatusBadge status={source.status} />}
       />
+      <Card className="border-indigo-200/70 bg-indigo-50/60 dark:border-indigo-900 dark:bg-indigo-950/30">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Sparkles size={17} aria-hidden="true" /> AI preview
+          </CardTitle>
+          <CardDescription>
+            Generated during the latest successful import or metadata discovery.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm leading-6">
+            {source.previewSummary ??
+              "Preview will appear after the source is imported or metadata discovery completes."}
+          </p>
+        </CardContent>
+      </Card>
       <div className="grid gap-5 lg:grid-cols-[1fr_340px]">
         <div className="space-y-5">
           {canManage ? (

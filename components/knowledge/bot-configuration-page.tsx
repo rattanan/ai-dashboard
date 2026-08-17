@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { BotConfigurationForm } from "@/components/knowledge/phase2-forms";
-import { KnowledgeStudioNav } from "@/components/knowledge/studio-nav";
 import { PageHeader } from "@/components/ui/page-header";
 import { requireAuthorization } from "@/server/auth/authorization";
 import { requirePermission } from "@/server/auth/permissions";
@@ -111,6 +110,8 @@ export async function BotConfigurationPage({ botId }: { botId?: string }) {
         fontFamily: bot.fontFamily as "system" | "sans" | "serif" | "mono",
         colorMode: bot.colorMode as "LIGHT" | "DARK" | "AUTO",
         launcherIcon: bot.launcherIcon,
+        widgetSize: bot.widgetSize as "COMPACT" | "STANDARD" | "LARGE",
+        launcherSize: bot.launcherSize,
         windowPosition: bot.windowPosition as "LEFT" | "RIGHT",
         placeholder: bot.placeholder,
         brandingEnabled: bot.brandingEnabled,
@@ -149,7 +150,6 @@ export async function BotConfigurationPage({ botId }: { botId?: string }) {
           </Link>
         }
       />
-      <KnowledgeStudioNav />
       <section className="rounded-xl border bg-card p-5 sm:p-6">
         <BotConfigurationForm
           bot={value}

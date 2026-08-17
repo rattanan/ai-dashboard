@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/ui/page-header";
-import { KnowledgeStudioNav } from "@/components/knowledge/studio-nav";
 import {
   refreshSourceAction,
   reindexSourceAction,
@@ -86,7 +85,6 @@ export default async function KnowledgeSourcesPage() {
           </Link>
         }
       />
-      <KnowledgeStudioNav />
       <section className="rounded-xl border bg-card p-5">
         <div className="mb-4">
           <h2 className="font-semibold">Configured sources</h2>
@@ -117,6 +115,14 @@ export default async function KnowledgeSourcesPage() {
                     {source.lastRefreshStatus ?? "NOT RUN"}
                   </Badge>
                 </div>
+                {source.previewSummary ? (
+                  <div className="rounded-lg border border-indigo-200/70 bg-indigo-50/60 p-3 text-sm text-indigo-950 dark:border-indigo-900 dark:bg-indigo-950/30 dark:text-indigo-100">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-indigo-700 dark:text-indigo-300">
+                      AI preview
+                    </p>
+                    <p className="mt-1 leading-6">{source.previewSummary}</p>
+                  </div>
+                ) : null}
                 <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
                   <div>
                     <dt className="text-muted-foreground">New</dt>

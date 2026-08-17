@@ -2,7 +2,6 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/ui/page-header";
 import { DeleteBotForm } from "@/components/knowledge/phase2-forms";
-import { KnowledgeStudioNav } from "@/components/knowledge/studio-nav";
 import { toggleBotAction } from "@/features/knowledge/actions";
 import { requireAuthorization } from "@/server/auth/authorization";
 import { requirePermission } from "@/server/auth/permissions";
@@ -41,7 +40,6 @@ export default async function BotAdministrationPage() {
           </Link>
         }
       />
-      <KnowledgeStudioNav />
       <section className="grid gap-4 xl:grid-cols-2" aria-label="Bots">
         {bots.map((bot) => (
           <article key={bot.id} className="rounded-xl border bg-card p-5">

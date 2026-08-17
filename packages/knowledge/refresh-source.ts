@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Pool, PoolClient } from "pg";
@@ -23,6 +23,8 @@ type SourceRow = {
   timeoutMs: number | null;
   maxBytes: number | null;
   maxRedirects: number | null;
+  crawlDepth: number | null;
+  maxPages: number | null;
   embeddingModel: string | null;
 };
 
@@ -35,6 +37,7 @@ type SnapshotRow = {
   etag: string | null;
   lastModified: string | null;
   documentId: string | null;
+  metadata: Record<string, unknown> | null;
 };
 
 function mimeFor(fileName: string) {
@@ -70,6 +73,7 @@ async function sourceRow(pool: Pool, sourceId: string) {
             r."organizationId", r."createdById",
             f."rootPath", f."includeSubdirectories", f."maxFiles",
             w.url, w."allowedDomains", w."timeoutMs", w."maxBytes", w."maxRedirects",
+            w."crawlDepth", w."maxPages",
             p."embeddingModel"
        FROM "KnowledgeSource" s
        JOIN "KnowledgeRack" r ON r.id = s."rackId"
@@ -221,7 +225,7 @@ async function createVersion(
 
 async function snapshots(pool: Pool, sourceId: string) {
   const { rows } = await pool.query<SnapshotRow>(
-    `SELECT id, locator, size, "modifiedAt", checksum, etag, "lastModified", "documentId"
+    `SELECT id, locator, size, "modifiedAt", checksum, etag, "lastModified", "documentId", metadata
        FROM "SourceSnapshot" WHERE "sourceId" = $1`,
     [sourceId],
   );
@@ -421,123 +425,229 @@ async function refreshWeb(
   if (!source.url || !source.allowedDomains?.length)
     throw new Error("Web source configuration is missing");
   const previous = await snapshots(pool, source.sourceId);
-  const prior = previous.get(source.url);
-  const fetched = await fetchWebPage({
-    url: source.url,
-    allowedDomains: source.allowedDomains,
-    timeoutMs: Math.min(
-      source.timeoutMs ?? environment.KNOWLEDGE_WEB_TIMEOUT_MS,
-      environment.KNOWLEDGE_WEB_TIMEOUT_MS,
-    ),
-    maxBytes: Math.min(
-      source.maxBytes ?? environment.KNOWLEDGE_WEB_MAX_BYTES,
-      environment.KNOWLEDGE_WEB_MAX_BYTES,
-    ),
-    maxRedirects: Math.min(
-      source.maxRedirects ?? environment.KNOWLEDGE_WEB_MAX_REDIRECTS,
-      environment.KNOWLEDGE_WEB_MAX_REDIRECTS,
-    ),
-    etag: prior?.etag,
-    lastModified: prior?.lastModified,
-  });
-  if (fetched.notModified) {
-    await pool.query(
-      `UPDATE "SourceSnapshot" SET "fetchedAt" = CURRENT_TIMESTAMP,
-              "httpStatus" = 304, "lastSeenRunId" = $3, status = 'ACTIVE',
-              "updatedAt" = CURRENT_TIMESTAMP
-        WHERE "sourceId" = $1 AND locator = $2`,
-      [source.sourceId, source.url, runId],
-    );
-    return {
-      newCount: 0,
-      changedCount: 0,
-      deletedCount: 0,
-      unchangedCount: 1,
-      successCount: 1,
-      errors: [] as Array<{ locator: string; message: string }>,
-    };
-  }
-  const checksum = await import("node:crypto").then(({ createHash }) =>
-    createHash("sha256").update(fetched.bytes).digest("hex"),
-  );
-  const changed = !prior || prior.checksum !== checksum;
-  const client = await pool.connect();
-  let indexJobId: string | null = null;
-  try {
-    await client.query("BEGIN");
-    let documentId = prior?.documentId;
-    if (changed) {
-      const url = new URL(fetched.canonicalUrl);
-      const baseName = path.basename(url.pathname) || url.hostname;
-      const created = await createVersion(client, {
-        source,
-        runId,
-        locator: source.url,
-        name: baseName.includes(".") ? baseName : `${baseName}.html`,
-        mimeType:
-          fetched.contentType === "text/html" ? "text/html" : "text/plain",
-        checksum,
-        bytes: fetched.bytes,
-        sourceMetadata: {
-          sourceType: "WEB",
-          url: fetched.finalUrl,
-          canonicalUrl: fetched.canonicalUrl,
-          fetchedAt: new Date().toISOString(),
-          httpStatus: fetched.status,
-        },
-        storageRoot: environment.LOCAL_STORAGE_PATH,
-      });
-      documentId = created.documentId;
-      indexJobId = created.indexJobId;
-    }
-    await upsertSnapshot(client, {
-      sourceId: source.sourceId,
-      runId,
-      locator: source.url,
-      documentId,
-      size: fetched.bytes.length,
-      checksum,
-      etag: fetched.etag,
-      lastModified: fetched.lastModified,
-      fetchedAt: new Date(),
-      httpStatus: fetched.status,
-      canonicalUrl: fetched.canonicalUrl,
-      metadata: {
-        finalUrl: fetched.finalUrl,
-        contentType: fetched.contentType,
-      },
-    });
-    await client.query("COMMIT");
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
+  const root = new URL(source.url);
+  root.hash = "";
+  const rootUrl = root.href;
+  const maxDepth = Math.min(2, Math.max(0, source.crawlDepth ?? 2));
+  const maxPages = Math.min(500, Math.max(1, source.maxPages ?? 100));
+  const queue: Array<{ url: string; depth: number; parentUrl: string | null }> =
+    [{ url: rootUrl, depth: 0, parentUrl: null }];
+  const queued = new Set([rootUrl]);
+  const visited = new Set<string>();
+  const seen = new Set<string>();
+  const indexJobs: Array<{ id: string; locator: string }> = [];
   const errors: Array<{ locator: string; message: string }> = [];
-  if (indexJobId) {
+  let newCount = 0;
+  let changedCount = 0;
+  let unchangedCount = 0;
+  let successCount = 0;
+  let processedCount = 0;
+  let crawlTruncated = false;
+
+  const enqueueChildren = (
+    parentUrl: string,
+    depth: number,
+    links: string[],
+  ) => {
+    if (depth >= maxDepth) return;
+    for (const href of links) {
+      if (queue.length + processedCount >= maxPages) {
+        crawlTruncated = true;
+        break;
+      }
+      try {
+        const candidate = new URL(href);
+        candidate.hash = "";
+        if (candidate.hostname.toLowerCase() !== root.hostname.toLowerCase())
+          continue;
+        const normalized = candidate.href;
+        if (visited.has(normalized) || queued.has(normalized)) continue;
+        queued.add(normalized);
+        queue.push({ url: normalized, depth: depth + 1, parentUrl });
+      } catch {
+        // Invalid links are ignored without failing the page that contained them.
+      }
+    }
+  };
+
+  while (queue.length && processedCount < maxPages) {
+    const item = queue.shift()!;
+    queued.delete(item.url);
+    if (visited.has(item.url)) continue;
+    visited.add(item.url);
+    processedCount += 1;
+    seen.add(item.url);
+    const prior = previous.get(item.url);
     try {
-      await enqueueIndex(indexJobId);
+      const fetched = await fetchWebPage({
+        url: item.url,
+        // Crawling and redirects are intentionally pinned to the exact host
+        // of the configured start URL, even if the legacy allowlist is broader.
+        allowedDomains: [root.hostname],
+        timeoutMs: Math.min(
+          source.timeoutMs ?? environment.KNOWLEDGE_WEB_TIMEOUT_MS,
+          environment.KNOWLEDGE_WEB_TIMEOUT_MS,
+        ),
+        maxBytes: Math.min(
+          source.maxBytes ?? environment.KNOWLEDGE_WEB_MAX_BYTES,
+          environment.KNOWLEDGE_WEB_MAX_BYTES,
+        ),
+        maxRedirects: Math.min(
+          source.maxRedirects ?? environment.KNOWLEDGE_WEB_MAX_REDIRECTS,
+          environment.KNOWLEDGE_WEB_MAX_REDIRECTS,
+        ),
+        etag: prior?.etag,
+        lastModified: prior?.lastModified,
+      });
+      if (fetched.notModified) {
+        visited.add(fetched.finalUrl);
+        await pool.query(
+          `UPDATE "SourceSnapshot" SET "fetchedAt" = CURRENT_TIMESTAMP,
+                  "httpStatus" = 304, "lastSeenRunId" = $3, status = 'ACTIVE',
+                  "updatedAt" = CURRENT_TIMESTAMP
+            WHERE "sourceId" = $1 AND locator = $2`,
+          [source.sourceId, item.url, runId],
+        );
+        const knownChildren = [...previous.values()]
+          .filter((snapshot) => snapshot.metadata?.parentUrl === item.url)
+          .map((snapshot) => snapshot.locator);
+        enqueueChildren(item.url, item.depth, knownChildren);
+        unchangedCount += 1;
+        successCount += 1;
+        continue;
+      }
+      visited.add(fetched.finalUrl);
+      visited.add(fetched.canonicalUrl);
+      const checksum = createHash("sha256").update(fetched.bytes).digest("hex");
+      const changed = !prior || prior.checksum !== checksum;
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        let documentId = prior?.documentId;
+        if (changed) {
+          const pageUrl = new URL(fetched.canonicalUrl);
+          const stem =
+            pageUrl.pathname
+              .split("/")
+              .filter(Boolean)
+              .slice(-3)
+              .join("-")
+              .replace(/[^a-zA-Z0-9._-]+/g, "-") || pageUrl.hostname;
+          const suffix = createHash("sha1")
+            .update(item.url)
+            .digest("hex")
+            .slice(0, 10);
+          const created = await createVersion(client, {
+            source,
+            runId,
+            locator: item.url,
+            name: `${stem.slice(0, 120)}-${suffix}.${fetched.contentType === "text/html" ? "html" : "txt"}`,
+            mimeType:
+              fetched.contentType === "text/html" ? "text/html" : "text/plain",
+            checksum,
+            bytes: fetched.bytes,
+            sourceMetadata: {
+              sourceType: "WEB",
+              url: fetched.finalUrl,
+              canonicalUrl: fetched.canonicalUrl,
+              crawlDepth: item.depth,
+              parentUrl: item.parentUrl,
+              fetchedAt: new Date().toISOString(),
+              httpStatus: fetched.status,
+            },
+            storageRoot: environment.LOCAL_STORAGE_PATH,
+          });
+          documentId = created.documentId;
+          if (created.indexJobId)
+            indexJobs.push({ id: created.indexJobId, locator: item.url });
+        }
+        await upsertSnapshot(client, {
+          sourceId: source.sourceId,
+          runId,
+          locator: item.url,
+          documentId,
+          size: fetched.bytes.length,
+          checksum,
+          etag: fetched.etag,
+          lastModified: fetched.lastModified,
+          fetchedAt: new Date(),
+          httpStatus: fetched.status,
+          canonicalUrl: fetched.canonicalUrl,
+          metadata: {
+            finalUrl: fetched.finalUrl,
+            contentType: fetched.contentType,
+            crawlDepth: item.depth,
+            parentUrl: item.parentUrl,
+          },
+        });
+        await client.query("COMMIT");
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally {
+        client.release();
+      }
+      enqueueChildren(item.url, item.depth, fetched.links);
+      if (!changed) unchangedCount += 1;
+      else if (prior) changedCount += 1;
+      else newCount += 1;
+      successCount += 1;
+    } catch (error) {
+      const message = (
+        error instanceof Error ? error.message : "Web page refresh failed"
+      ).slice(0, 500);
+      errors.push({ locator: item.url, message });
+      if (item.depth === 0) throw error;
+    }
+  }
+
+  if (queue.length) crawlTruncated = true;
+  if (crawlTruncated)
+    errors.push({
+      locator: rootUrl,
+      message: `Crawl stopped at the configured ${maxPages}-page limit. Previously indexed pages were preserved.`,
+    });
+  const deleted = crawlTruncated
+    ? []
+    : [...previous.values()].filter(
+        (snapshot) => !seen.has(snapshot.locator) && snapshot.documentId,
+      );
+  if (deleted.length) {
+    await pool.query(
+      `UPDATE "Document" SET active = false, "sourceDeletedAt" = CURRENT_TIMESTAMP,
+              "updatedAt" = CURRENT_TIMESTAMP WHERE id = ANY($1::text[])`,
+      [deleted.map((item) => item.documentId)],
+    );
+    await pool.query(
+      `UPDATE "SourceSnapshot" SET status = 'DELETED', "updatedAt" = CURRENT_TIMESTAMP
+        WHERE id = ANY($1::text[])`,
+      [deleted.map((item) => item.id)],
+    );
+  }
+
+  for (const job of indexJobs) {
+    try {
+      await enqueueIndex(job.id);
     } catch (error) {
       const message = (
         error instanceof Error ? error.message : "Index queue failed"
       ).slice(0, 500);
-      errors.push({ locator: source.url, message });
+      errors.push({ locator: job.locator, message });
       await pool.query(
         `UPDATE "DocumentIndexJob" SET status = 'DEAD_LETTER',
                 "failureCategory" = 'QUEUE', "errorMessage" = $2,
                 "deadLetteredAt" = CURRENT_TIMESTAMP, "completedAt" = CURRENT_TIMESTAMP,
                 "updatedAt" = CURRENT_TIMESTAMP WHERE id = $1`,
-        [indexJobId, message],
+        [job.id, message],
       );
     }
   }
   return {
-    newCount: prior ? 0 : 1,
-    changedCount: prior && changed ? 1 : 0,
-    deletedCount: 0,
-    unchangedCount: changed ? 0 : 1,
-    successCount: 1,
+    newCount,
+    changedCount,
+    deletedCount: deleted.length,
+    unchangedCount,
+    successCount,
     errors,
   };
 }

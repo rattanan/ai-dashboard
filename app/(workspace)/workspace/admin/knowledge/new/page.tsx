@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { KnowledgeRackForm } from "@/components/knowledge/phase2-forms";
-import { KnowledgeStudioNav } from "@/components/knowledge/studio-nav";
 import { PageHeader } from "@/components/ui/page-header";
 import { requireAuthorization } from "@/server/auth/authorization";
 import { requirePermission } from "@/server/auth/permissions";
@@ -30,7 +29,6 @@ export default async function NewKnowledgeRackPage() {
           </Link>
         }
       />
-      <KnowledgeStudioNav />
       <section className="rounded-xl border bg-card p-5 sm:p-6">
         <KnowledgeRackForm roles={roles} />
       </section>

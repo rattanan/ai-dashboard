@@ -14,6 +14,7 @@ import { env } from "@/schemas/env";
 import { failure, success } from "@/types/result";
 import { authorizeResource } from "@/server/auth/resource-authorization";
 import { LocalObjectStorageService } from "@/server/storage/local-storage";
+import { summarizeDataSourcePreview } from "@/server/services/source-preview-service";
 
 function batches<T>(values: T[], size = 500) {
   const result: T[][] = [];
@@ -459,6 +460,12 @@ export async function discoverDataSource(
       // governed metadata is intentionally bounded but needs longer than the
       // Prisma interactive transaction default of five seconds.
       { maxWait: 10_000, timeout: 300_000 },
+    );
+    await summarizeDataSourcePreview(context, source.id).catch((error) =>
+      logger.warn("Data source preview summary failed", {
+        dataSourceId: source.id,
+        error,
+      }),
     );
     return success({
       schemas: schemasToScan.length,

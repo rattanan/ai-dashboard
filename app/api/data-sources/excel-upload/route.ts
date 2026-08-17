@@ -7,6 +7,7 @@ import { LocalObjectStorageService } from "@/server/storage/local-storage";
 import { env } from "@/schemas/env";
 import { failure, success } from "@/types/result";
 import { contentLengthWithinLimit } from "@/server/http/request-security";
+import { summarizeDataSourcePreview } from "@/server/services/source-preview-service";
 
 export async function POST(request: Request) {
   if (
@@ -181,6 +182,7 @@ export async function POST(request: Request) {
       });
       return created;
     });
+    await summarizeDataSourcePreview(context, source.id).catch(() => undefined);
     return Response.json(
       success({ id: source.id, sheetNames: uploaded.data.sheetNames }),
       { status: 201 },

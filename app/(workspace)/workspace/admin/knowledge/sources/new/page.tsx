@@ -3,7 +3,6 @@ import {
   SharedFolderSourceForm,
   WebSourceForm,
 } from "@/components/knowledge/phase4-forms";
-import { KnowledgeStudioNav } from "@/components/knowledge/studio-nav";
 import { PageHeader } from "@/components/ui/page-header";
 import { requireAuthorization } from "@/server/auth/authorization";
 import { requirePermission } from "@/server/auth/permissions";
@@ -33,7 +32,6 @@ export default async function NewOperationalSourcePage() {
           </Link>
         }
       />
-      <KnowledgeStudioNav />
       <div className="grid gap-6 xl:grid-cols-2">
         <section className="rounded-xl border bg-card p-5 sm:p-6">
           <h2 className="mb-1 font-semibold">Add shared folder</h2>

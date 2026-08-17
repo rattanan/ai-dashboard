@@ -300,6 +300,34 @@ export function extractMainHtml(html: string) {
   ).trim();
 }
 
+export function extractSameDomainLinks(
+  html: string,
+  baseUrl: string | URL,
+  rootHostname: string,
+) {
+  const links = new Set<string>();
+  const pattern = /<a\b[^>]*\bhref\s*=\s*(?:["']([^"']+)["']|([^\s>]+))/gi;
+  for (const match of html.matchAll(pattern)) {
+    const href = (match[1] ?? match[2] ?? "").trim();
+    if (!href || /^(?:#|mailto:|tel:|javascript:|data:)/i.test(href)) continue;
+    try {
+      const url = new URL(href, baseUrl);
+      if (
+        !["http:", "https:"].includes(url.protocol) ||
+        url.username ||
+        url.password ||
+        url.hostname.toLowerCase() !== rootHostname.toLowerCase()
+      )
+        continue;
+      url.hash = "";
+      links.add(url.href);
+    } catch {
+      // Ignore malformed links found in otherwise valid pages.
+    }
+  }
+  return [...links];
+}
+
 type WebFetchResult =
   | { notModified: true; finalUrl: string; status: 304 }
   | {
@@ -309,6 +337,7 @@ type WebFetchResult =
       status: number;
       contentType: string;
       bytes: Buffer;
+      links: string[];
       etag?: string;
       lastModified?: string;
     };
@@ -457,6 +486,14 @@ export async function fetchWebPage(input: {
         await validatePublicWebUrl(candidate, input.allowedDomains)
       ).url.href;
     }
+    const links =
+      contentType === "text/html"
+        ? extractSameDomainLinks(
+            text,
+            validated.url,
+            new URL(input.url).hostname,
+          )
+        : [];
     const content = contentType === "text/html" ? extractMainHtml(text) : text;
     return {
       notModified: false,
@@ -465,6 +502,7 @@ export async function fetchWebPage(input: {
       status: response.status,
       contentType,
       bytes: Buffer.from(content),
+      links,
       etag: headerValue(response.headers.etag),
       lastModified: headerValue(response.headers["last-modified"]),
     };

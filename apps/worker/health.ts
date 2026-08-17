@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { Queue, QueueEvents } from "bullmq";
 import {
   createRedisConnection,
@@ -30,7 +31,10 @@ async function checkWorker() {
     const job = await queue.add(
       SYSTEM_HEALTH_JOB,
       { requestId, requestedAt: new Date().toISOString() },
-      { removeOnComplete: true, removeOnFail: 25 },
+      {
+        removeOnComplete: { age: 60, count: 100 },
+        removeOnFail: { age: 3_600, count: 25 },
+      },
     );
     const result = await job.waitUntilFinished(
       events,

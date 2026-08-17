@@ -115,15 +115,15 @@ const groups: Array<{ label: string; items: NavigationItem[] }> = [
         exact: true,
       },
       {
-        href: "/workspace/sources/web",
-        label: "Web URL",
+        href: "/workspace/admin/knowledge/sources",
+        label: "Web & Folder Sources",
         icon: Globe2,
         show: "knowledgeManagement",
         exact: true,
       },
       {
-        href: "/workspace/sources/file-upload",
-        label: "File Upload",
+        href: "/workspace/admin/knowledge",
+        label: "File Upload & Racks",
         icon: FileSpreadsheet,
         show: "knowledgeManagement",
         exact: true,
@@ -158,6 +158,13 @@ const groups: Array<{ label: string; items: NavigationItem[] }> = [
         label: "All Bots",
         icon: Bot,
         show: "botUse",
+        exact: true,
+      },
+      {
+        href: "/workspace/admin/bots",
+        label: "Manage Bots",
+        icon: BotMessageSquare,
+        show: "botManagement",
         exact: true,
       },
       {
@@ -370,15 +377,21 @@ function CollapsibleNavigationGroup({
   label: string;
   mobile: boolean;
 }) {
-  const [open, setOpen] = useState(active);
+  const [manuallyOpen, setManuallyOpen] = useState(false);
+  const open = active || manuallyOpen;
 
   return (
     <details
       className="group/nav"
       open={open}
-      onToggle={(event) => setOpen(event.currentTarget.open)}
+      onToggle={(event) => {
+        if (!active) setManuallyOpen(event.currentTarget.open);
+      }}
     >
       <summary
+        onClick={(event) => {
+          if (active && open) event.preventDefault();
+        }}
         className={cn(
           "flex min-h-11 cursor-pointer list-none items-center justify-between rounded-xl px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 [&::-webkit-details-marker]:hidden",
           active
@@ -412,7 +425,89 @@ export function WorkspaceNav({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { t } = useWorkspaceLocale();
-  const visibleGroups = groups
+  const botDetailMatch = pathname.match(
+    /^\/workspace\/admin\/bots\/([^/]+)$/,
+  );
+  const botId = botDetailMatch?.[1] === "new" ? undefined : botDetailMatch?.[1];
+  const contextualGroups: Array<{
+    label: string;
+    items: NavigationItem[];
+  }> = botId
+    ? [
+        {
+          label: "Bot settings",
+          items: [
+            {
+              href: `/workspace/admin/bots/${botId}`,
+              label: "Overview",
+              icon: Gauge,
+              exact: true,
+              excludeQueryKeys: ["tab"],
+            },
+            {
+              href: `/workspace/admin/bots/${botId}?tab=prompt-model`,
+              label: "Prompt & Model",
+              icon: BrainCircuit,
+              exact: true,
+              query: { key: "tab", value: "prompt-model" },
+            },
+            {
+              href: `/workspace/admin/bots/${botId}?tab=sources`,
+              label: "Bot Sources",
+              icon: LibraryBig,
+              exact: true,
+              query: { key: "tab", value: "sources" },
+            },
+            {
+              href: `/workspace/admin/bots/${botId}?tab=api-tools`,
+              label: "Bot API Tools",
+              icon: PlugZap,
+              exact: true,
+              query: { key: "tab", value: "api-tools" },
+            },
+            {
+              href: `/workspace/admin/bots/${botId}?tab=playground`,
+              label: "Playground",
+              icon: Sparkles,
+              exact: true,
+              query: { key: "tab", value: "playground" },
+            },
+            {
+              href: `/workspace/admin/bots/${botId}?tab=appearance`,
+              label: "Appearance",
+              icon: Bot,
+              exact: true,
+              query: { key: "tab", value: "appearance" },
+            },
+            {
+              href: `/workspace/admin/bots/${botId}?tab=embed-integration`,
+              label: "Embed & Integration",
+              icon: Network,
+              exact: true,
+              query: { key: "tab", value: "embed-integration" },
+            },
+            {
+              href: `/workspace/admin/bots/${botId}?tab=conversation-history`,
+              label: "Conversation History",
+              icon: MessagesSquare,
+              exact: true,
+              query: { key: "tab", value: "conversation-history" },
+            },
+            {
+              href: `/workspace/admin/bots/${botId}?tab=analytics`,
+              label: "Bot Analytics",
+              icon: ChartNoAxesCombined,
+              exact: true,
+              query: { key: "tab", value: "analytics" },
+            },
+          ],
+        },
+      ]
+    : [];
+  const navigationGroups = groups.flatMap((group) =>
+    group.label === "Bots" ? [group, ...contextualGroups] : [group],
+  );
+  const visibleGroups = navigationGroups
     .map((group) => ({
       ...group,
       items: group.items.filter(
@@ -464,7 +559,7 @@ export function WorkspaceNav({
 
         return (
           <CollapsibleNavigationGroup
-            key={`${group.label}:${groupActive ? "active" : "idle"}`}
+            key={group.label}
             label={t(group.label)}
             active={groupActive}
             mobile={mobile}

@@ -5,13 +5,23 @@ const optionalId = z.preprocess(
   z.string().min(1).optional(),
 );
 
+const botAssetPath =
+  /^\/api\/bots\/[^/]+\/assets\/[a-f0-9-]{36}\.(?:jpg|png|webp)$/;
+
 export const botConfigurationSchema = z.object({
   botId: optionalId,
   name: z.string().trim().min(2).max(100),
   description: z.string().trim().max(500).optional(),
   avatarUrl: z.preprocess(
     (value) => (value === "" ? undefined : value),
-    z.string().url().optional(),
+    z
+      .string()
+      .refine(
+        (value) =>
+          botAssetPath.test(value) || z.string().url().safeParse(value).success,
+        "Enter a valid URL",
+      )
+      .optional(),
   ),
   systemPrompt: z.string().trim().min(20).max(8_000),
   welcomeMessage: z.string().trim().min(2).max(1_000),
@@ -27,8 +37,17 @@ export const botConfigurationSchema = z.object({
   colorMode: z.enum(["LIGHT", "DARK", "AUTO"]),
   launcherIcon: z.preprocess(
     (value) => (value === "" ? undefined : value),
-    z.string().url().optional(),
+    z
+      .string()
+      .refine(
+        (value) =>
+          botAssetPath.test(value) || z.string().url().safeParse(value).success,
+        "Enter a valid URL",
+      )
+      .optional(),
   ),
+  widgetSize: z.enum(["COMPACT", "STANDARD", "LARGE"]),
+  launcherSize: z.coerce.number().int().min(40).max(80),
   windowPosition: z.enum(["LEFT", "RIGHT"]),
   placeholder: z.string().trim().min(2).max(200),
   brandingEnabled: z.preprocess((value) => value === "on", z.boolean()),
@@ -45,6 +64,21 @@ export const botConfigurationSchema = z.object({
   legacyApiIds: z.array(z.string().min(1)).max(20),
   roleIds: z.array(z.string().min(1)).max(50),
   userIds: z.array(z.string().min(1)).max(200),
+});
+
+export const botAppearanceSchema = z.object({
+  botId: z.string().min(1),
+  primaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+  headerColor: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+  chatBubbleColor: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+  fontFamily: z.enum(["system", "sans", "serif", "mono"]),
+  colorMode: z.enum(["LIGHT", "DARK", "AUTO"]),
+  widgetSize: z.enum(["COMPACT", "STANDARD", "LARGE"]),
+  launcherSize: z.coerce.number().int().min(40).max(80),
+  windowPosition: z.enum(["LEFT", "RIGHT"]),
+  brandingEnabled: z.preprocess((value) => value === "on", z.boolean()),
+  removeAvatar: z.preprocess((value) => value === "on", z.boolean()),
+  removeLauncherIcon: z.preprocess((value) => value === "on", z.boolean()),
 });
 
 export const knowledgeRackSchema = z.object({

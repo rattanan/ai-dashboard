@@ -182,8 +182,8 @@ export function WebSourceForm({ racks }: { racks: RackChoice[] }) {
           />
         </Field>
         <p className="mt-1 text-xs text-muted-foreground">
-          Every DNS answer, redirect, and canonical URL must remain public and
-          inside this allowlist.
+          Links are followed up to two levels on the exact starting hostname.
+          Every DNS answer, redirect, and canonical URL must remain public.
         </p>
       </div>
       <Field label="Timeout (milliseconds)" htmlFor="web-timeout">

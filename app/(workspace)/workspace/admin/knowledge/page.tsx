@@ -2,7 +2,6 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/ui/page-header";
 import { DocumentUploadForm } from "@/components/knowledge/phase2-forms";
-import { KnowledgeStudioNav } from "@/components/knowledge/studio-nav";
 import { retryDocumentIndexAction } from "@/features/knowledge/actions";
 import { requireAuthorization } from "@/server/auth/authorization";
 import { requirePermission } from "@/server/auth/permissions";
@@ -50,7 +49,6 @@ export default async function KnowledgeRackAdministrationPage() {
           </Link>
         }
       />
-      <KnowledgeStudioNav />
       {racks.map((rack) => {
         const documents = rack.sources.flatMap((source) => source.documents);
         return (

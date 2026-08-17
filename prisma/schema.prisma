@@ -835,6 +835,8 @@ model Bot {
   fontFamily           String                @default("system")
   colorMode            String                @default("LIGHT")
   launcherIcon         String?
+  widgetSize           String                @default("STANDARD")
+  launcherSize         Int                   @default(56)
   windowPosition       String                @default("RIGHT")
   placeholder          String                @default("Ask a question…")
   brandingEnabled      Boolean               @default(true)
@@ -992,31 +994,34 @@ model KnowledgeRackAccess {
 }
 
 model KnowledgeSource {
-  id                 String                    @id @default(cuid())
-  rackId             String
-  name               String
-  type               KnowledgeSourceType       @default(FILE)
-  description        String?
-  status             EnterpriseSourceStatus    @default(DRAFT)
-  scope              SourceScope               @default(SELECTED_BOTS)
-  category           String?
-  tags               String[]                  @default([])
-  active             Boolean                   @default(true)
-  createdById        String?
-  lastRefreshAt      DateTime?
-  lastRefreshStatus  SourceRefreshStatus?
-  lastRefreshMessage String?
-  rack               KnowledgeRack             @relation(fields: [rackId], references: [id], onDelete: Cascade)
-  createdBy          User?                     @relation("KnowledgeSourceCreator", fields: [createdById], references: [id], onDelete: SetNull)
-  documents          Document[]
-  botAssignments     BotKnowledgeSource[]
-  copiedTextConfig   CopiedTextSourceConfig?
-  sharedFolderConfig SharedFolderSourceConfig?
-  webConfig          WebSourceConfig?
-  refreshRuns        SourceRefreshRun[]
-  snapshots          SourceSnapshot[]
-  createdAt          DateTime                  @default(now())
-  updatedAt          DateTime                  @updatedAt
+  id                  String                    @id @default(cuid())
+  rackId              String
+  name                String
+  type                KnowledgeSourceType       @default(FILE)
+  description         String?
+  status              EnterpriseSourceStatus    @default(DRAFT)
+  scope               SourceScope               @default(SELECTED_BOTS)
+  category            String?
+  tags                String[]                  @default([])
+  active              Boolean                   @default(true)
+  createdById         String?
+  lastRefreshAt       DateTime?
+  lastRefreshStatus   SourceRefreshStatus?
+  lastRefreshMessage  String?
+  previewSummary      String?
+  previewSummaryAt    DateTime?
+  previewSummaryModel String?
+  rack                KnowledgeRack             @relation(fields: [rackId], references: [id], onDelete: Cascade)
+  createdBy           User?                     @relation("KnowledgeSourceCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  documents           Document[]
+  botAssignments      BotKnowledgeSource[]
+  copiedTextConfig    CopiedTextSourceConfig?
+  sharedFolderConfig  SharedFolderSourceConfig?
+  webConfig           WebSourceConfig?
+  refreshRuns         SourceRefreshRun[]
+  snapshots           SourceSnapshot[]
+  createdAt           DateTime                  @default(now())
+  updatedAt           DateTime                  @updatedAt
 
   @@unique([rackId, name])
   @@index([rackId, active])
@@ -1173,6 +1178,8 @@ model WebSourceConfig {
   timeoutMs       Int             @default(15000)
   maxBytes        Int             @default(5242880)
   maxRedirects    Int             @default(3)
+  crawlDepth      Int             @default(2)
+  maxPages        Int             @default(100)
   scheduleEnabled Boolean         @default(false)
   intervalMinutes Int             @default(360)
   source          KnowledgeSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
@@ -1465,6 +1472,9 @@ model DataSource {
   metadataVersion     Int                    @default(0)
   metadataFingerprint String?
   lastMetadataDiff    Json?
+  previewSummary      String?
+  previewSummaryAt    DateTime?
+  previewSummaryModel String?
   createdById         String
   workspace           Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   createdBy           User                   @relation("DataSourceCreator", fields: [createdById], references: [id])
@@ -1634,6 +1644,9 @@ model LegacyApi {
   lastTestMessage      String?
   lastTestLatencyMs    Int?
   lastTestedAt         DateTime?
+  previewSummary       String?
+  previewSummaryAt     DateTime?
+  previewSummaryModel  String?
   createdById          String
   organization         Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   workspace            Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)

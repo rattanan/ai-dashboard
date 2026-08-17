@@ -35,10 +35,15 @@ export async function recoverStaleOperations(
 
   const staleJobs = await pool.query<{ id: string; documentVersionId: string }>(
     `UPDATE "DocumentIndexJob"
-        SET status = 'QUEUED', "errorMessage" = 'Recovered after a stale worker heartbeat.',
+        SET status = 'QUEUED', "errorMessage" = 'Recovered after missing or stale queue processing.',
             "updatedAt" = CURRENT_TIMESTAMP
-      WHERE status = 'PROCESSING'
-        AND COALESCE("lastHeartbeatAt", "startedAt", "updatedAt") < $1
+      WHERE (
+          status = 'PROCESSING'
+          AND COALESCE("lastHeartbeatAt", "startedAt", "updatedAt") < $1
+        ) OR (
+          status = 'QUEUED'
+          AND "updatedAt" < $1
+        )
       RETURNING id, "documentVersionId"`,
     [input.staleBefore],
   );

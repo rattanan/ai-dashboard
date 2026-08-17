@@ -41,5 +41,5 @@
 ## Production notes
 
 - The local object store remains suitable only for a persistent single-cluster volume. A durable shared object-storage adapter is required before horizontally scaling workers across hosts.
-- Web extraction intentionally supports individual text/HTML pages, not arbitrary recursive crawling or authenticated sites.
+- Web extraction follows same-host links to a fixed depth of two (up to 100 pages per refresh), deduplicates visited URLs, and does not support authenticated sites.
 - DNS egress policy should still restrict Worker traffic at the infrastructure layer; application SSRF controls are defense in depth.

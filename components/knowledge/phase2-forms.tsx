@@ -50,6 +50,8 @@ type BotValue = {
   fontFamily: "system" | "sans" | "serif" | "mono";
   colorMode: "LIGHT" | "DARK" | "AUTO";
   launcherIcon: string | null;
+  widgetSize: "COMPACT" | "STANDARD" | "LARGE";
+  launcherSize: number;
   windowPosition: "LEFT" | "RIGHT";
   placeholder: string;
   brandingEnabled: boolean;
@@ -103,7 +105,7 @@ export function BotConfigurationForm({
         <Input
           id={`bot-avatar-${bot?.id ?? "new"}`}
           name="avatarUrl"
-          type="url"
+          type="text"
           defaultValue={bot?.avatarUrl ?? ""}
         />
       </Field>
@@ -436,13 +438,42 @@ export function BotConfigurationForm({
         </select>
       </Field>
       <Field
+        label="Widget size"
+        htmlFor={`bot-widget-size-${bot?.id ?? "new"}`}
+      >
+        <select
+          id={`bot-widget-size-${bot?.id ?? "new"}`}
+          name="widgetSize"
+          defaultValue={bot?.widgetSize ?? "STANDARD"}
+          className="min-h-11 w-full rounded-lg border bg-white px-3"
+        >
+          <option value="COMPACT">Compact</option>
+          <option value="STANDARD">Standard</option>
+          <option value="LARGE">Large</option>
+        </select>
+      </Field>
+      <Field
+        label="Launcher icon size"
+        htmlFor={`bot-launcher-size-${bot?.id ?? "new"}`}
+        hint="40–80 pixels"
+      >
+        <Input
+          id={`bot-launcher-size-${bot?.id ?? "new"}`}
+          name="launcherSize"
+          type="number"
+          min="40"
+          max="80"
+          defaultValue={bot?.launcherSize ?? 56}
+        />
+      </Field>
+      <Field
         label="Launcher icon URL"
         htmlFor={`bot-launcher-${bot?.id ?? "new"}`}
       >
         <Input
           id={`bot-launcher-${bot?.id ?? "new"}`}
           name="launcherIcon"
-          type="url"
+          type="text"
           defaultValue={bot?.launcherIcon ?? ""}
         />
       </Field>

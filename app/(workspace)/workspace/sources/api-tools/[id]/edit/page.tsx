@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, Plus } from "lucide-react";
+import { ArrowLeft, Plus, Sparkles } from "lucide-react";
 import { LegacyApiRegistryForm } from "@/components/admin/legacy-api-registry-form";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
@@ -60,6 +60,16 @@ export default async function EditApiToolPage({
           </div>
         }
       />
+      <section className="flex items-start gap-3 rounded-xl border border-indigo-200/70 bg-indigo-50/60 p-5 text-indigo-950 dark:border-indigo-900 dark:bg-indigo-950/30 dark:text-indigo-100">
+        <Sparkles className="mt-0.5 shrink-0" size={18} aria-hidden="true" />
+        <div>
+          <h2 className="font-semibold">AI preview</h2>
+          <p className="mt-1 text-sm leading-6">
+            {api.previewSummary ??
+              "Preview will appear after a successful bounded API test."}
+          </p>
+        </div>
+      </section>
       <section className="rounded-xl border bg-card p-5 sm:p-6">
         <LegacyApiRegistryForm
           bots={bots}

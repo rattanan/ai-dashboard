@@ -5,6 +5,7 @@ import {
   Globe2,
   PlugZap,
   Search,
+  Sparkles,
   Type,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -34,6 +35,7 @@ type UnifiedSource = {
   lastSync: Date | null;
   creator: string;
   href: string;
+  previewSummary: string | null;
 };
 
 function tone(status: string) {
@@ -173,6 +175,7 @@ export default async function SourcesPage({
         source.type === "COPIED_TEXT"
           ? `/workspace/sources/copied-text/${source.id}/edit`
           : "/workspace/admin/knowledge/sources",
+      previewSummary: source.previewSummary,
     })),
     ...databases.map((source) => ({
       id: source.id,
@@ -191,6 +194,7 @@ export default async function SourcesPage({
       lastSync: source.lastDiscoveredAt ?? source.updatedAt,
       creator: source.createdBy.name ?? source.createdBy.email,
       href: `/workspace/data-sources/${source.id}`,
+      previewSummary: source.previewSummary,
     })),
     ...apiTools.map((source) => ({
       id: source.id,
@@ -208,7 +212,8 @@ export default async function SourcesPage({
       chunkCount: 0,
       lastSync: source.lastTestedAt ?? source.updatedAt,
       creator: source.createdBy.name ?? source.createdBy.email,
-      href: "/workspace/sources/api-tools",
+      href: `/workspace/sources/api-tools/${source.id}/edit`,
+      previewSummary: source.previewSummary,
     })),
   ];
   const search = query.q?.trim().toLocaleLowerCase() ?? "";
@@ -244,26 +249,6 @@ export default async function SourcesPage({
         title="Sources"
         description="Govern web, files, copied text, live databases, and API tools in one ACL-aware catalog. Global means available only after the actor passes the existing resource ACL."
       />
-      <nav
-        aria-label="Source types"
-        className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5"
-      >
-        {[
-          ["Web URL", "/workspace/sources/web"],
-          ["File upload", "/workspace/sources/file-upload"],
-          ["Copied text", "/workspace/sources/copied-text/new"],
-          ["Database", "/workspace/sources/database"],
-          ["API tools", "/workspace/sources/api-tools"],
-        ].map(([label, href]) => (
-          <Link
-            key={href}
-            href={href}
-            className="flex min-h-11 items-center justify-center rounded-xl border bg-card px-4 text-sm font-medium hover:border-primary hover:text-primary"
-          >
-            {label}
-          </Link>
-        ))}
-      </nav>
       <form className="grid gap-3 rounded-xl border bg-card p-4 md:grid-cols-[1fr_180px_180px_160px_auto]">
         <label className="relative">
           <span className="sr-only">Search sources</span>
@@ -361,6 +346,21 @@ export default async function SourcesPage({
                 View / edit
               </Link>
             </div>
+            {source.previewSummary ? (
+              <div className="mt-4 flex items-start gap-2 rounded-lg border border-indigo-200/70 bg-indigo-50/60 px-3 py-2.5 text-sm text-indigo-950 dark:border-indigo-900 dark:bg-indigo-950/30 dark:text-indigo-100">
+                <Sparkles
+                  className="mt-0.5 shrink-0"
+                  size={16}
+                  aria-hidden="true"
+                />
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-indigo-700 dark:text-indigo-300">
+                    AI preview
+                  </p>
+                  <p className="mt-0.5 leading-6">{source.previewSummary}</p>
+                </div>
+              </div>
+            ) : null}
             <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-5">
               <div>
                 <dt className="text-muted-foreground">Bots</dt>

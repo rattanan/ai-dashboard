@@ -56,7 +56,7 @@ function WorkspaceShellContent({
     .map((part) => part[0]?.toUpperCase())
     .join("");
   return (
-    <div className="min-h-dvh bg-background lg:grid lg:grid-cols-[272px_1fr]">
+    <div className="min-h-dvh bg-background lg:grid lg:grid-cols-[272px_minmax(0,1fr)]">
       <a
         href="#main-content"
         className="sr-only fixed left-4 top-4 z-50 rounded-lg bg-slate-950 px-4 py-3 text-sm font-medium text-white focus:not-sr-only"
@@ -86,7 +86,7 @@ function WorkspaceShellContent({
           <WorkspaceNav {...navigation} />
         </div>
       </aside>
-      <div className="flex min-h-dvh flex-col lg:col-start-2">
+      <div className="flex min-h-dvh min-w-0 flex-col lg:col-start-2">
         <header className="sticky top-0 z-30 flex h-20 items-center justify-between border-b bg-white/90 px-4 backdrop-blur-xl sm:px-7">
           <details className="relative lg:hidden">
             <summary
@@ -161,7 +161,7 @@ function WorkspaceShellContent({
         </header>
         <main
           id="main-content"
-          className="mx-auto w-full max-w-[1500px] flex-1 p-5 sm:p-7 lg:p-9"
+          className="mx-auto w-full min-w-0 max-w-[1500px] flex-1 p-5 sm:p-7 lg:p-9"
         >
           {children}
         </main>

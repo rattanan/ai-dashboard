@@ -251,7 +251,18 @@ export async function retryDocumentIndex(
   await db.$transaction([
     db.documentIndexJob.update({
       where: { id: job.id },
-      data: { status: "QUEUED", errorMessage: null, completedAt: null },
+      data: {
+        status: "QUEUED",
+        attempt: 0,
+        progressPercent: 0,
+        processedChunks: 0,
+        failureCategory: null,
+        errorMessage: null,
+        startedAt: null,
+        completedAt: null,
+        cancelledAt: null,
+        deadLetteredAt: null,
+      },
     }),
     db.documentVersion.update({
       where: { id: version.id },

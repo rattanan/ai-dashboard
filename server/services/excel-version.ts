@@ -2,6 +2,7 @@ import type { Prisma } from "@/generated/prisma/client";
 import type { AuthorizationContext } from "@/server/auth/authorization";
 import type { ImportedExcelSheet, UploadedWorkbook } from "./excel";
 import { db } from "@/server/db";
+import { summarizeDataSourcePreview } from "./source-preview-service";
 
 async function rebuildLogicalMetadata(
   tx: Prisma.TransactionClient,
@@ -104,7 +105,7 @@ export async function replaceExcelVersion(
   if (!source?.file) throw new Error("NOT_FOUND");
   const previous = source.excelVersions[0];
   const changes = compareSchemas(previous?.sheets ?? [], uploaded.sheets);
-  return db.$transaction(async (tx) => {
+  const result = await db.$transaction(async (tx) => {
     await tx.excelFileVersion.updateMany({
       where: { dataSourceId, isCurrent: true },
       data: { isCurrent: false },
@@ -193,6 +194,10 @@ export async function replaceExcelVersion(
     });
     return { version: version.version, changes };
   });
+  await summarizeDataSourcePreview(context, dataSourceId).catch(
+    () => undefined,
+  );
+  return result;
 }
 
 export async function rollbackExcelVersion(

@@ -4,7 +4,6 @@ import type {
 } from "@/generated/prisma/client";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/ui/page-header";
-import { KnowledgeStudioNav } from "@/components/knowledge/studio-nav";
 import {
   cancelIndexJobAction,
   retryIndexJobAction,
@@ -119,7 +118,6 @@ export default async function IndexJobsPage({
         title="Index operations"
         description="Monitor queue depth, indexing progress, categorized failures, retries, cancellation, and dead-letter jobs."
       />
-      <KnowledgeStudioNav />
 
       <section
         className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5"

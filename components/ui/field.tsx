@@ -38,7 +38,7 @@ export function Field({
       </label>
       {children}
       {hint && !error ? (
-        <p className="text-xs text-muted-foreground">{hint}</p>
+        <p className="text-xs text-muted-foreground">{t(hint)}</p>
       ) : null}
       {error ? (
         <p className="text-sm text-destructive" role="alert">

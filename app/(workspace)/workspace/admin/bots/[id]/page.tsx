@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
+import { BotAppearanceForm } from "@/components/knowledge/bot-appearance-form";
 import { PageHeader } from "@/components/ui/page-header";
 import { requireAuthorization } from "@/server/auth/authorization";
 import { requirePermission } from "@/server/auth/permissions";
@@ -88,24 +89,6 @@ export default async function BotDetailPage({
         title={bot.name}
         description={bot.description ?? "Versioned enterprise knowledge bot"}
       />
-      <nav
-        aria-label="Bot detail sections"
-        className="flex gap-2 overflow-x-auto border-b pb-3"
-      >
-        {tabs.map((item) => (
-          <Link
-            key={item}
-            href={`?tab=${item}`}
-            aria-current={tab === item ? "page" : undefined}
-            className={`min-h-11 shrink-0 rounded-lg px-3 py-3 text-sm font-medium ${tab === item ? "bg-secondary text-secondary-foreground" : "hover:bg-muted"}`}
-          >
-            {item
-              .split("-")
-              .map((word) => word[0].toUpperCase() + word.slice(1))
-              .join(" & ")}
-          </Link>
-        ))}
-      </nav>
       {tab === "overview" ? (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {[
@@ -348,45 +331,32 @@ export default async function BotDetailPage({
         </section>
       ) : null}
       {tab === "appearance" ? (
-        <section className="grid gap-6 rounded-xl border bg-card p-5 lg:grid-cols-2">
-          <dl className="grid content-start gap-3 text-sm">
-            <div>
-              <dt className="text-muted-foreground">Font / mode</dt>
-              <dd className="font-medium">
-                {bot.fontFamily} / {bot.colorMode}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-muted-foreground">Position</dt>
-              <dd className="font-medium">{bot.windowPosition}</dd>
-            </div>
-            <div>
-              <dt className="text-muted-foreground">Branding</dt>
-              <dd className="font-medium">
-                {bot.brandingEnabled ? "On" : "Off"}
-              </dd>
-            </div>
-          </dl>
-          <div
-            className="overflow-hidden rounded-2xl border shadow-lg"
-            style={{ backgroundColor: bot.chatBubbleColor }}
-          >
-            <header
-              className="p-4 text-white"
-              style={{ backgroundColor: bot.headerColor }}
-            >
-              <h2 className="font-semibold">{bot.name}</h2>
-            </header>
-            <div className="min-h-52 p-4">
-              <p className="max-w-[85%] rounded-xl bg-white p-3 text-sm">
-                {bot.welcomeMessage}
-              </p>
-            </div>
-            <div className="border-t bg-white p-3 text-sm text-muted-foreground">
-              {bot.placeholder}
-            </div>
-          </div>
-        </section>
+        <BotAppearanceForm
+          bot={{
+            id: bot.id,
+            name: bot.name,
+            welcomeMessage: bot.welcomeMessage,
+            placeholder: bot.placeholder,
+            avatarUrl: bot.avatarUrl,
+            launcherIcon: bot.launcherIcon,
+            primaryColor: bot.primaryColor,
+            headerColor: bot.headerColor,
+            chatBubbleColor: bot.chatBubbleColor,
+            fontFamily: bot.fontFamily as "system" | "sans" | "serif" | "mono",
+            colorMode: bot.colorMode as "LIGHT" | "DARK" | "AUTO",
+            widgetSize: ["COMPACT", "STANDARD", "LARGE"].includes(
+              bot.widgetSize,
+            )
+              ? (bot.widgetSize as "COMPACT" | "STANDARD" | "LARGE")
+              : "STANDARD",
+            launcherSize:
+              Number.isInteger(bot.launcherSize) && bot.launcherSize >= 40
+                ? bot.launcherSize
+                : 56,
+            windowPosition: bot.windowPosition as "LEFT" | "RIGHT",
+            brandingEnabled: bot.brandingEnabled,
+          }}
+        />
       ) : null}
       {tab === "embed-integration" ? (
         <section className="rounded-xl border bg-card p-5">
