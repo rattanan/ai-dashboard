@@ -8,8 +8,17 @@ import { Field } from "@/components/ui/field";
 
 export function CreateUserForm({
   roles,
+  organizationUnits,
+  projects,
 }: {
-  roles: { id: string; name: string; description: string | null }[];
+  roles: {
+    id: string;
+    name: string;
+    description: string | null;
+    systemKey: string | null;
+  }[];
+  organizationUnits: { id: string; name: string }[];
+  projects: { id: string; name: string }[];
 }) {
   const [state, action, pending] = useActionState(createUserAction, null);
   return (
@@ -59,6 +68,37 @@ export function CreateUserForm({
           <option value="ACTIVE">Active</option>
           <option value="LOCKED">Locked</option>
           <option value="DISABLED">Disabled</option>
+        </select>
+      </Field>
+      <Field
+        label="Department / organization unit"
+        htmlFor="organizationUnitId"
+      >
+        <select
+          id="organizationUnitId"
+          name="organizationUnitId"
+          className="min-h-11 w-full rounded-lg border bg-white px-3"
+        >
+          <option value="">Unassigned</option>
+          {organizationUnits.map((unit) => (
+            <option key={unit.id} value={unit.id}>
+              {unit.name}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <Field label="Projects" htmlFor="projectIds">
+        <select
+          id="projectIds"
+          name="projectIds"
+          multiple
+          className="min-h-28 w-full rounded-lg border bg-white px-3 py-2"
+        >
+          {projects.map((project) => (
+            <option key={project.id} value={project.id}>
+              {project.name}
+            </option>
+          ))}
         </select>
       </Field>
       <label className="flex min-h-11 items-center gap-2 text-sm">

@@ -31,6 +31,10 @@ export default async function WorkspaceLayout({
         administration:
           permissions.has("user.create") || permissions.has("audit.view"),
         excel: permissions.has("excel.upload"),
+        bots: permissions.has("bot.use") || permissions.has("bot.manage"),
+        knowledgeManagement:
+          permissions.has("bot.manage") || permissions.has("knowledge.manage"),
+        insights: permissions.has("insight.manage"),
       }}
     >
       {children}

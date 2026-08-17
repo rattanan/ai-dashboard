@@ -27,6 +27,7 @@ export type DiscoveredTable = {
   name: string;
   tableType: "TABLE" | "VIEW";
   estimatedRowCount: bigint | null;
+  comment?: string | null;
 };
 export type DiscoveredColumn = {
   schemaName: string;
@@ -37,6 +38,7 @@ export type DiscoveredColumn = {
   nullable: boolean;
   primaryKey: boolean;
   defaultValue: string | null;
+  comment?: string | null;
 };
 export type DiscoveredRelationship = {
   name: string;
@@ -54,7 +56,7 @@ export interface DataConnector {
     AppResult<{
       latencyMs: number;
       serverVersion?: string;
-      engine?: "MYSQL" | "MARIADB" | "ORACLE";
+      engine?: "MYSQL" | "MARIADB" | "POSTGRESQL" | "MSSQL" | "ORACLE";
       compatibilityWarning?: string;
       currentUser?: string;
       currentSchema?: string;
@@ -73,7 +75,8 @@ export interface DataConnector {
   ): Promise<AppResult<Record<string, unknown>[]>>;
   executeReadOnlyQuery(
     sql: string,
-    options?: { timeoutMs?: number },
+    options?: { timeoutMs?: number; maxRows?: number },
   ): Promise<AppResult<Record<string, unknown>[]>>;
+  cancelActiveQuery(): Promise<void>;
   close(): Promise<void>;
 }

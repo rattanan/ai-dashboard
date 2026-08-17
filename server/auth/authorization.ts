@@ -1,5 +1,5 @@
 import { auth } from "@/auth";
-import { OrganizationRole } from "@/generated/prisma/enums";
+import { AuthenticationMode, OrganizationRole } from "@/generated/prisma/enums";
 import { db } from "@/server/db";
 import { hasRole } from "./roles";
 
@@ -8,6 +8,7 @@ export type AuthorizationContext = {
   organizationId: string;
   workspaceId: string;
   role: OrganizationRole;
+  authMode?: AuthenticationMode;
 };
 
 export async function requireUser() {
@@ -48,11 +49,22 @@ export async function getAuthorizationContext(
 
   const membership = workspace?.organization.members[0];
   if (!workspace || !membership) return null;
+  const loginHistory = session.user.loginHistoryId
+    ? await db.loginHistory.findFirst({
+        where: {
+          id: session.user.loginHistoryId,
+          userId: session.user.id,
+          organizationId: workspace.organizationId,
+        },
+        select: { authMode: true },
+      })
+    : null;
   return {
     userId: session.user.id,
     organizationId: workspace.organizationId,
     workspaceId: workspace.id,
     role: membership.role,
+    authMode: loginHistory?.authMode ?? "LOCAL",
   };
 }
 

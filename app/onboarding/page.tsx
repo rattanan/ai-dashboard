@@ -1,9 +1,12 @@
 import { redirect } from "next/navigation";
-import { LayoutDashboard } from "lucide-react";
 import {
   getAuthorizationContext,
   requireUser,
 } from "@/server/auth/authorization";
+import {
+  InsightKmMark,
+  InsightKmWordmark,
+} from "@/components/brand/insightkm-mark";
 import { OnboardingForm } from "@/components/onboarding/onboarding-form";
 import {
   Card,
@@ -23,11 +26,9 @@ export default async function OnboardingPage() {
       className="grid min-h-dvh place-items-center bg-background px-4 py-10"
     >
       <div className="w-full max-w-lg">
-        <div className="mb-7 flex items-center justify-center gap-2 font-semibold">
-          <span className="grid size-9 place-items-center rounded-lg bg-primary text-white">
-            <LayoutDashboard size={18} />
-          </span>
-          AI Dashboard
+        <div className="mb-7 flex items-center justify-center gap-3">
+          <InsightKmMark />
+          <InsightKmWordmark />
         </div>
         <Card>
           <CardHeader>
@@ -39,7 +40,7 @@ export default async function OnboardingPage() {
             </CardTitle>
             <CardDescription>
               Organizations keep membership and audit history separate.
-              Workspaces contain your data sources and dashboards.
+              Workspaces contain your governed knowledge sources and insights.
             </CardDescription>
           </CardHeader>
           <CardContent>

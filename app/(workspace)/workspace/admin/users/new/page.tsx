@@ -10,11 +10,23 @@ export default async function NewUserPage() {
   const context = await requireAuthorization();
   await requirePermission(context, "user.create");
   await ensureOrganizationSystemRoles(context.organizationId);
-  const roles = await db.role.findMany({
-    where: { organizationId: context.organizationId },
-    select: { id: true, name: true, description: true },
-    orderBy: { name: "asc" },
-  });
+  const [roles, organizationUnits, projects] = await Promise.all([
+    db.role.findMany({
+      where: { organizationId: context.organizationId },
+      select: { id: true, name: true, description: true, systemKey: true },
+      orderBy: { name: "asc" },
+    }),
+    db.organizationUnit.findMany({
+      where: { organizationId: context.organizationId, active: true },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    }),
+    db.organizationProject.findMany({
+      where: { organizationId: context.organizationId, active: true },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    }),
+  ]);
   return (
     <div className="space-y-6">
       <PageHeader
@@ -23,7 +35,11 @@ export default async function NewUserPage() {
       />
       <Card>
         <CardContent className="pt-6">
-          <CreateUserForm roles={roles} />
+          <CreateUserForm
+            roles={roles}
+            organizationUnits={organizationUnits}
+            projects={projects}
+          />
         </CardContent>
       </Card>
     </div>

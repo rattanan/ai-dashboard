@@ -123,7 +123,7 @@ async function main() {
         permissionId: permission.id,
       })),
     });
-    if (systemKey === "SYSTEM_ADMIN") {
+    if (["ADMIN", "SYSTEM_ADMIN"].includes(systemKey)) {
       await prisma.userRole.upsert({
         where: {
           organizationId_userId_roleId: {
@@ -155,6 +155,185 @@ async function main() {
       });
     }
   }
+  const generalUnit = await prisma.organizationUnit.upsert({
+    where: {
+      organizationId_code: { organizationId: organization.id, code: "GENERAL" },
+    },
+    update: { active: true },
+    create: {
+      organizationId: organization.id,
+      name: "General",
+      code: "GENERAL",
+      description: "Default organization unit",
+    },
+  });
+  const generalProject = await prisma.organizationProject.upsert({
+    where: {
+      organizationId_code: { organizationId: organization.id, code: "GENERAL" },
+    },
+    update: { active: true },
+    create: {
+      organizationId: organization.id,
+      name: "General",
+      code: "GENERAL",
+      description: "Default project scope",
+    },
+  });
+  await prisma.piiMaskingPolicy.upsert({
+    where: { organizationId: organization.id },
+    update: {},
+    create: { organizationId: organization.id },
+  });
+  await prisma.systemRetentionPolicy.upsert({
+    where: { organizationId: organization.id },
+    update: {},
+    create: { organizationId: organization.id },
+  });
+  await prisma.authenticationPolicy.upsert({
+    where: { organizationId: organization.id },
+    update: {},
+    create: {
+      organizationId: organization.id,
+      localEnabled: true,
+      externalApiEnabled: false,
+      embeddedEnabled: false,
+      modePriority: ["EMBEDDED", "EXTERNAL_API", "LOCAL"],
+    },
+  });
+  const generalRack = await prisma.knowledgeRack.upsert({
+    where: {
+      organizationId_name: {
+        organizationId: organization.id,
+        name: "General Knowledge",
+      },
+    },
+    update: {
+      active: true,
+      description: "Default governed document collection for InsightKM.",
+    },
+    create: {
+      organizationId: organization.id,
+      createdById: user.id,
+      name: "General Knowledge",
+      description: "Default governed document collection for InsightKM.",
+    },
+  });
+  await prisma.knowledgeSource.upsert({
+    where: {
+      rackId_name: { rackId: generalRack.id, name: "Files" },
+    },
+    update: { active: true },
+    create: { rackId: generalRack.id, name: "Files", type: "FILE" },
+  });
+  const knowledgeRoleIds = ["ADMIN", "SYSTEM_ADMIN", "MANAGER", "USER"]
+    .map((key) => rolesByKey.get(key))
+    .filter((roleId): roleId is string => Boolean(roleId));
+  for (const roleId of knowledgeRoleIds) {
+    await prisma.knowledgeRackAccess.upsert({
+      where: { rackId_roleId: { rackId: generalRack.id, roleId } },
+      update: { level: "READ" },
+      create: {
+        organizationId: organization.id,
+        rackId: generalRack.id,
+        roleId,
+        level: "READ",
+      },
+    });
+  }
+  await prisma.knowledgeRackAccess.upsert({
+    where: { rackId_userId: { rackId: generalRack.id, userId: user.id } },
+    update: { level: "MANAGE" },
+    create: {
+      organizationId: organization.id,
+      rackId: generalRack.id,
+      userId: user.id,
+      level: "MANAGE",
+    },
+  });
+  const defaultBot = await prisma.bot.upsert({
+    where: {
+      organizationId_name: {
+        organizationId: organization.id,
+        name: "InsightKM Assistant",
+      },
+    },
+    update: {
+      active: true,
+      description:
+        "ผู้ช่วยความรู้องค์กรแบบมีการกำกับดูแล / Governed organizational knowledge assistant.",
+      welcomeMessage:
+        "สวัสดีครับ ถามได้ทั้งภาษาไทยและอังกฤษจากข้อมูลที่คุณมีสิทธิ์เข้าถึง / Ask in Thai or English from knowledge you are allowed to access.",
+      suggestedQuestions: [
+        "สรุปนโยบายที่ฉันมีสิทธิ์เข้าถึง",
+        "มีช่องว่างความรู้เรื่องใดบ้าง",
+        "Summarize the policies I can access.",
+        "Which knowledge gaps need review?",
+      ],
+    },
+    create: {
+      organizationId: organization.id,
+      createdById: user.id,
+      name: "InsightKM Assistant",
+      description: "Answers from governed organizational knowledge.",
+      systemPrompt:
+        "Answer only from the governed evidence provided by InsightKM. Be concise, preserve the user's language, and state clearly when evidence is insufficient.",
+      welcomeMessage:
+        "สวัสดีครับ ถามข้อมูลจากเอกสารที่คุณมีสิทธิ์เข้าถึงได้เลย",
+      suggestedQuestions: [
+        "สรุปนโยบายที่ฉันมีสิทธิ์เข้าถึง",
+        "มีช่องว่างความรู้เรื่องใดบ้าง",
+        "Summarize the policies I can access.",
+        "Which knowledge gaps need review?",
+      ],
+      active: true,
+    },
+  });
+  await prisma.botProviderConfig.upsert({
+    where: { botId: defaultBot.id },
+    update: { citationEnabled: true, memoryMode: "CONVERSATION" },
+    create: {
+      botId: defaultBot.id,
+      temperature: 0.1,
+      maxTokens: 2048,
+      contextSize: 12000,
+      citationEnabled: true,
+      memoryMode: "CONVERSATION",
+    },
+  });
+  await prisma.botKnowledgeRack.upsert({
+    where: {
+      botId_rackId: { botId: defaultBot.id, rackId: generalRack.id },
+    },
+    update: {},
+    create: { botId: defaultBot.id, rackId: generalRack.id },
+  });
+  for (const roleId of knowledgeRoleIds) {
+    await prisma.botAccess.upsert({
+      where: { botId_roleId: { botId: defaultBot.id, roleId } },
+      update: { level: "USE" },
+      create: {
+        organizationId: organization.id,
+        botId: defaultBot.id,
+        roleId,
+        level: "USE",
+      },
+    });
+  }
+  await prisma.botVersion.upsert({
+    where: { botId_version: { botId: defaultBot.id, version: 1 } },
+    update: {},
+    create: {
+      botId: defaultBot.id,
+      version: 1,
+      createdById: user.id,
+      configuration: {
+        seeded: true,
+        citationEnabled: true,
+        rackIds: [generalRack.id],
+        roleIds: knowledgeRoleIds,
+      },
+    },
+  });
   if (
     process.env.NODE_ENV !== "production" &&
     process.env.SEED_DEVELOPMENT_TEST_USERS === "true"
@@ -172,6 +351,8 @@ async function main() {
         "dashboard.builder",
       ],
       ["DASHBOARD_VIEWER", "Development Dashboard Viewer", "dashboard.viewer"],
+      ["MANAGER", "ผู้จัดการ Pilot / Pilot Manager", "pilot.manager"],
+      ["USER", "ผู้ใช้ Pilot / Pilot User", "pilot.user"],
     ] as const;
     for (const [systemKey, name, username] of testUsers) {
       const roleId = rolesByKey.get(systemKey);
@@ -191,18 +372,35 @@ async function main() {
           }),
         },
       });
-      await prisma.organizationMember.upsert({
+      const member = await prisma.organizationMember.upsert({
         where: {
           organizationId_userId: {
             organizationId: organization.id,
             userId: testUser.id,
           },
         },
-        update: { role: "VIEWER" },
+        update: {
+          role: "VIEWER",
+          organizationUnitId: generalUnit.id,
+        },
         create: {
           organizationId: organization.id,
           userId: testUser.id,
           role: "VIEWER",
+          organizationUnitId: generalUnit.id,
+        },
+      });
+      await prisma.userProject.upsert({
+        where: {
+          organizationMemberId_projectId: {
+            organizationMemberId: member.id,
+            projectId: generalProject.id,
+          },
+        },
+        update: {},
+        create: {
+          organizationMemberId: member.id,
+          projectId: generalProject.id,
         },
       });
       await prisma.userRole.upsert({

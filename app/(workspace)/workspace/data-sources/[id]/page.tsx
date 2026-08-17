@@ -1,9 +1,16 @@
 import { notFound } from "next/navigation";
-import { Columns3, Database, KeyRound, Table2 } from "lucide-react";
+import Link from "next/link";
+import {
+  Columns3,
+  Database,
+  KeyRound,
+  MessageSquareText,
+  Table2,
+} from "lucide-react";
 import { requireAuthorization } from "@/server/auth/authorization";
 import { dataSourceRepository } from "@/server/repositories/data-sources";
 import { formatDate } from "@/lib/utils";
-import { StatusBadge } from "../page";
+import { DataSourceStatusBadge } from "@/components/data-sources/status-badge";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
@@ -16,6 +23,15 @@ import { PageHeader } from "@/components/ui/page-header";
 import { ServerOperationButton } from "@/components/wizard/server-operation-button";
 import { DeleteDataSourceDialog } from "@/components/data-sources/delete-data-source-dialog";
 import { hasPermission } from "@/server/auth/permissions";
+import { Button } from "@/components/ui/button";
+import { DatabaseScopeForm } from "@/components/data-sources/database-scope-form";
+
+const databaseTypes = new Set(["MYSQL", "POSTGRESQL", "MSSQL", "ORACLE"]);
+
+function metadataDiff(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
 
 export default async function DataSourceDetailPage({
   params,
@@ -37,13 +53,15 @@ export default async function DataSourceDetailPage({
       sum + schema.tables.reduce((n, table) => n + table.columns.length, 0),
     0,
   );
+  const isDatabase = databaseTypes.has(source.type);
+  const diff = metadataDiff(source.lastMetadataDiff);
   return (
     <div className="space-y-7">
       <PageHeader
         eyebrow={source.type}
         title={source.name}
         description="Credentials remain encrypted and are never returned by this page."
-        action={<StatusBadge status={source.status} />}
+        action={<DataSourceStatusBadge status={source.status} />}
       />
       <div className="grid gap-5 lg:grid-cols-[1fr_340px]">
         <div className="space-y-5">
@@ -97,15 +115,27 @@ export default async function DataSourceDetailPage({
                             key={table.id}
                             className="flex items-center justify-between rounded-md px-2 py-2 text-sm hover:bg-muted"
                           >
-                            <span className="flex items-center gap-2">
+                            <span className="flex min-w-0 items-start gap-2">
                               <Table2
                                 size={16}
-                                className="text-muted-foreground"
+                                className="mt-0.5 shrink-0 text-muted-foreground"
                               />
-                              {table.name}
+                              <span className="min-w-0">
+                                <span className="block break-all">
+                                  {table.name}
+                                </span>
+                                {table.semanticDescription ||
+                                table.databaseComment ? (
+                                  <span className="mt-0.5 block text-xs text-muted-foreground">
+                                    {table.semanticDescription ||
+                                      table.databaseComment}
+                                  </span>
+                                ) : null}
+                              </span>
                             </span>
-                            <span className="text-xs text-muted-foreground">
-                              {table.columns.length} columns
+                            <span className="shrink-0 text-xs text-muted-foreground">
+                              {table.columns.length} columns ·{" "}
+                              {table.selected ? "selected" : "not selected"}
                             </span>
                           </div>
                         ))}
@@ -121,6 +151,36 @@ export default async function DataSourceDetailPage({
               )}
             </CardContent>
           </Card>
+          {canManage && isDatabase && source.schemas.length ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Governed database scope</CardTitle>
+                <CardDescription>
+                  Choose the schemas, tables, views, and masked sample
+                  permissions available to AI features.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <DatabaseScopeForm
+                  dataSourceId={source.id}
+                  sampleDataEnabled={source.sampleDataEnabled}
+                  schemas={source.schemas.map((schema) => ({
+                    id: schema.id,
+                    name: schema.name,
+                    tables: schema.tables.map((table) => ({
+                      id: table.id,
+                      name: table.name,
+                      tableType: table.tableType,
+                      selected: table.selected,
+                      sampleDataEnabled: table.sampleDataEnabled,
+                      semanticDescription: table.semanticDescription,
+                      columnCount: table.columns.length,
+                    })),
+                  }))}
+                />
+              </CardContent>
+            </Card>
+          ) : null}
         </div>
         <aside className="space-y-5">
           <Card>
@@ -129,6 +189,13 @@ export default async function DataSourceDetailPage({
               <CardDescription>Executed only on the server.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
+              {isDatabase && source.status === "CONNECTED" ? (
+                <Button asChild className="w-full">
+                  <Link href={`/workspace/data-sources/${id}/query`}>
+                    <MessageSquareText size={16} /> Ask this database
+                  </Link>
+                </Button>
+              ) : null}
               <ServerOperationButton endpoint={`/api/data-sources/${id}/test`}>
                 Test connection
               </ServerOperationButton>
@@ -161,6 +228,22 @@ export default async function DataSourceDetailPage({
                 label="Credential exposed"
                 value="No"
               />
+              {isDatabase ? (
+                <>
+                  <Summary
+                    label="Metadata version"
+                    value={source.metadataVersion}
+                    icon={<Database />}
+                  />
+                  {diff ? (
+                    <Summary
+                      label="Latest metadata diff"
+                      value={`${String(diff.addedTables ?? 0)}+ / ${String(diff.changedTables ?? 0)}~ / ${String(diff.removedTables ?? 0)}−`}
+                      icon={<Table2 />}
+                    />
+                  ) : null}
+                </>
+              ) : null}
             </CardContent>
           </Card>
           {canDelete ? (

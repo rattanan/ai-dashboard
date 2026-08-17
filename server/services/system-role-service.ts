@@ -67,7 +67,7 @@ export async function provisionOrganizationSystemRoles(
       skipDuplicates: true,
     });
 
-    if (systemKey === "SYSTEM_ADMIN" && systemAdminUserId) {
+    if (["ADMIN", "SYSTEM_ADMIN"].includes(systemKey) && systemAdminUserId) {
       await client.userRole.upsert({
         where: {
           organizationId_userId_roleId: {

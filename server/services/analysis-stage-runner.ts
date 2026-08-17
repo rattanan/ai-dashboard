@@ -18,6 +18,7 @@ import {
 } from "@/schemas/analysis";
 import { env } from "@/schemas/env";
 import { generateCachedStructuredOutput } from "@/server/ai/cached-provider";
+import { getEffectiveAiPrivacyPolicy } from "./privacy-policy";
 import {
   DASHBOARD_DESIGN_PROMPT,
   DASHBOARD_TEMPLATES,
@@ -52,8 +53,14 @@ function contentHash(value: unknown) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
-function quotedIdentifier(value: string, dataSourceType: "MYSQL" | "ORACLE") {
-  if (dataSourceType === "ORACLE") return `"${value.replaceAll('"', '""')}"`;
+function quotedIdentifier(
+  value: string,
+  dataSourceType: "MYSQL" | "POSTGRESQL" | "MSSQL" | "ORACLE",
+) {
+  if (dataSourceType === "MSSQL")
+    return "[" + value.replaceAll("]", "]]") + "]";
+  if (dataSourceType === "ORACLE" || dataSourceType === "POSTGRESQL")
+    return `"${value.replaceAll('"', '""')}"`;
   return `\`${value.replaceAll("`", "``")}\``;
 }
 
@@ -809,6 +816,9 @@ async function generateInsightsStage(
   job: AnalysisJob,
 ) {
   const configuration = env();
+  const privacyPolicy = await getEffectiveAiPrivacyPolicy(
+    context.organizationId,
+  );
   const [widgetArtifact, queries] = await Promise.all([
     latestArtifact(job.id, "WIDGET_DEFINITIONS"),
     db.queryDefinition.findMany({
@@ -840,7 +850,7 @@ async function generateInsightsStage(
         usage?: { inputTokens?: number; outputTokens?: number };
       }
     | undefined;
-  if (configuration.AI_SEND_SAMPLE_DATA && configuration.AI_MAX_INSIGHTS > 0) {
+  if (privacyPolicy.sendSampleData && configuration.AI_MAX_INSIGHTS > 0) {
     const queryResults = queries.map((query) => ({
       id: query.id,
       purpose: query.purpose,
@@ -848,7 +858,8 @@ async function generateInsightsStage(
         ? query.executions[0].previewRows.map((row) =>
             row && typeof row === "object" && !Array.isArray(row)
               ? sanitizeSampleRow(row as Record<string, unknown>, {
-                  maskSensitiveData: configuration.AI_MASK_SENSITIVE_DATA,
+                  maskSensitiveData: privacyPolicy.maskSensitiveData,
+                  maskingRules: privacyPolicy.maskingRules,
                   maxLength: configuration.AI_MAX_SAMPLE_CELL_LENGTH,
                 })
               : {},

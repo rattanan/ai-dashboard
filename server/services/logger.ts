@@ -1,5 +1,5 @@
 const REDACT_KEYS =
-  /password|secret|token|ciphertext|authorization|connection(string|url)?/i;
+  /password|secret|token|api.?key|credential|ciphertext|authorization|connection(string|url)?/i;
 
 export function redact(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(redact);

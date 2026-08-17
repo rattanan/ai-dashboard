@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { createConnector } from "@/server/connectors/factory";
 import { MySqlConnector } from "@/server/connectors/mysql";
+import { PostgreSqlConnector } from "@/server/connectors/postgresql";
+import { MsSqlConnector } from "@/server/connectors/mssql";
+import { OracleConnector } from "@/server/connectors/oracle";
 import { ExcelUploadService } from "@/server/services/excel";
 
 describe("connector boundaries", () => {
@@ -27,10 +30,43 @@ describe("connector boundaries", () => {
       expect(JSON.stringify(result.error)).not.toContain('password":"');
     }
   });
-  it("returns an explicit error for prepared adapters", async () => {
-    const result = await createConnector("POSTGRESQL", {}).testConnection();
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.code).toBe("CONNECTOR_NOT_IMPLEMENTED");
+  it("creates every Phase 5 database adapter", () => {
+    expect(createConnector("POSTGRESQL", {})).toBeInstanceOf(
+      PostgreSqlConnector,
+    );
+    expect(createConnector("MSSQL", {})).toBeInstanceOf(MsSqlConnector);
+    expect(createConnector("ORACLE", {})).toBeInstanceOf(OracleConnector);
+  });
+  it.each(["MYSQL", "POSTGRESQL", "MSSQL", "ORACLE"] as const)(
+    "%s implements the cancellable read-only connector contract",
+    (type) => {
+      const connector = createConnector(type, {});
+      for (const method of [
+        "validateConfiguration",
+        "testConnection",
+        "listSchemas",
+        "listTables",
+        "listColumns",
+        "listRelationships",
+        "fetchSample",
+        "executeReadOnlyQuery",
+        "cancelActiveQuery",
+        "close",
+      ] as const)
+        expect(typeof connector[method]).toBe("function");
+    },
+  );
+  it("validates PostgreSQL and SQL Server configuration without leaking secrets", () => {
+    for (const connector of [
+      new PostgreSqlConnector({}),
+      new MsSqlConnector({}),
+    ]) {
+      const result = connector.validateConfiguration();
+      expect(result.ok).toBe(false);
+      expect(JSON.stringify(result)).not.toMatch(
+        /password["']?\s*:\s*["'][^"']+/i,
+      );
+    }
   });
   it("rejects invalid Excel extensions before storage", async () => {
     const storage = { put: vi.fn(), get: vi.fn(), delete: vi.fn() };

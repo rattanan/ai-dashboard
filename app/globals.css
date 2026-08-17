@@ -1,19 +1,19 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f7f9fc;
-  --foreground: #172033;
+  --background: #f7f8fc;
+  --foreground: #1b1b2f;
   --card: #ffffff;
   --card-foreground: #172033;
-  --primary: #1e40af;
+  --primary: #4f46e5;
   --primary-foreground: #ffffff;
-  --secondary: #e8eefc;
-  --secondary-foreground: #17347d;
+  --secondary: #eeedff;
+  --secondary-foreground: #3730a3;
   --muted: #edf1f7;
   --muted-foreground: #58657a;
   --border: #dce2eb;
   --input: #cbd4e1;
-  --ring: #1e40af;
+  --ring: #4f46e5;
   --destructive: #b42318;
   --success: #067647;
   --warning: #b54708;
@@ -48,7 +48,11 @@
   width: min(42rem, 78vw);
   height: 22rem;
   border-radius: 999px;
-  background: radial-gradient(circle at center, rgb(96 165 250 / 0.16), transparent 68%);
+  background: radial-gradient(
+    circle at center,
+    rgb(96 165 250 / 0.16),
+    transparent 68%
+  );
   content: "";
   pointer-events: none;
 }
@@ -69,13 +73,16 @@
   border-color: color-mix(in srgb, var(--border) 78%, transparent);
   border-radius: 1.125rem;
   box-shadow: 0 6px 20px rgb(15 23 42 / 0.045);
-  transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    border-color 180ms ease;
 }
 
 .dashboard-card:hover {
   transform: translateY(-2px);
   border-color: color-mix(in srgb, var(--dashboard-accent) 28%, var(--border));
-  box-shadow: 0 16px 32px rgb(15 23 42 / 0.10);
+  box-shadow: 0 16px 32px rgb(15 23 42 / 0.1);
 }
 
 .dashboard-card-kpi {
@@ -104,16 +111,26 @@
   content: "";
 }
 
-.dashboard-card-insight::before { background: var(--chart-5); }
-.dashboard-card-table::before { background: var(--chart-3); }
+.dashboard-card-insight::before {
+  background: var(--chart-5);
+}
+.dashboard-card-table::before {
+  background: var(--chart-3);
+}
 
 .dashboard-section-enter {
   animation: dashboard-enter 420ms both ease-out;
 }
 
 @keyframes dashboard-enter {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .dashboard-dark {
@@ -133,7 +150,9 @@
 }
 
 .dashboard-dark .text-slate-950,
-.dashboard-dark .text-slate-700 { color: var(--foreground); }
+.dashboard-dark .text-slate-700 {
+  color: var(--foreground);
+}
 
 .dashboard-widget {
   grid-column: span 12 / span 12;
@@ -203,8 +222,8 @@ summary {
 }
 
 ::selection {
-  background: #bfdbfe;
-  color: #172033;
+  background: #ddd6fe;
+  color: #1b1b2f;
 }
 
 @media (prefers-reduced-motion: reduce) {

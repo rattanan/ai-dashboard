@@ -2,6 +2,7 @@ import { verify } from "@node-rs/argon2";
 import { db } from "@/server/db";
 import { env } from "@/schemas/env";
 import { consumeRateLimit } from "@/server/services/rate-limit";
+import { authenticateExternalCredentials } from "@/server/auth/external-auth";
 
 function requestContext(request?: Request) {
   const userAgent = request?.headers.get("user-agent")?.slice(0, 500) ?? null;
@@ -63,30 +64,40 @@ async function auditLogin(
   });
 }
 
-export async function authenticateCredentials(
+export async function authenticateLocalCredentials(
   identifier: string,
   password: string,
   request?: Request,
+  organizationId?: string,
 ) {
   const normalized = identifier.trim().toLowerCase();
   const context = requestContext(request);
   const config = env();
-  if (
-    !(await consumeRateLimit(
-      "login",
-      context.ipAddress || normalized,
-      config.LOGIN_RATE_LIMIT_MAX_ATTEMPTS,
-      config.LOGIN_RATE_LIMIT_WINDOW_MINUTES,
-    ))
-  )
-    return null;
+  const rateLimitResults = await Promise.all(
+    [...new Set([normalized, context.ipAddress].filter(Boolean))].map((key) =>
+      consumeRateLimit(
+        "login",
+        String(key),
+        config.LOGIN_RATE_LIMIT_MAX_ATTEMPTS,
+        config.LOGIN_RATE_LIMIT_WINDOW_MINUTES,
+      ),
+    ),
+  );
+  if (rateLimitResults.some((allowed) => !allowed)) return null;
 
   const user = await db.user.findFirst({
     where: {
       deletedAt: null,
       OR: [{ email: normalized }, { username: normalized }],
+      ...(organizationId ? { memberships: { some: { organizationId } } } : {}),
     },
-    include: { memberships: { take: 1, select: { organizationId: true } } },
+    include: {
+      memberships: {
+        where: organizationId ? { organizationId } : undefined,
+        take: 1,
+        select: { organizationId: true },
+      },
+    },
   });
   const historyBase = {
     organizationId: user?.memberships[0]?.organizationId,
@@ -208,4 +219,70 @@ export async function authenticateCredentials(
     context,
   );
   return { user, loginHistoryId: history.id };
+}
+
+function authenticationPriority(value: unknown) {
+  if (!Array.isArray(value)) return ["EXTERNAL_API", "LOCAL"] as const;
+  return value.filter(
+    (mode): mode is "EXTERNAL_API" | "LOCAL" =>
+      mode === "EXTERNAL_API" || mode === "LOCAL",
+  );
+}
+
+export async function authenticateCredentials(
+  identifier: string,
+  password: string,
+  request?: Request,
+  organizationSlug?: string,
+) {
+  const normalizedSlug = organizationSlug?.trim().toLowerCase();
+  const organization = normalizedSlug
+    ? await db.organization.findUnique({
+        where: { slug: normalizedSlug },
+        include: { authenticationPolicy: true },
+      })
+    : await db.organization.findFirst({
+        where: {
+          members: {
+            some: {
+              user: {
+                deletedAt: null,
+                OR: [
+                  { email: identifier.trim().toLowerCase() },
+                  { username: identifier.trim().toLowerCase() },
+                ],
+              },
+            },
+          },
+        },
+        include: { authenticationPolicy: true },
+      });
+  if (!organization?.authenticationPolicy)
+    return authenticateLocalCredentials(
+      identifier,
+      password,
+      request,
+      organization?.id,
+    );
+  const policy = organization.authenticationPolicy;
+  const selectedMode = authenticationPriority(policy.modePriority).find(
+    (mode) =>
+      (mode === "EXTERNAL_API" && policy.externalApiEnabled) ||
+      (mode === "LOCAL" && policy.localEnabled),
+  );
+  if (selectedMode === "EXTERNAL_API")
+    return authenticateExternalCredentials(
+      organization.id,
+      identifier,
+      password,
+      request,
+    );
+  if (selectedMode === "LOCAL")
+    return authenticateLocalCredentials(
+      identifier,
+      password,
+      request,
+      organization.id,
+    );
+  return null;
 }

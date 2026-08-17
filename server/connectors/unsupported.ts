@@ -40,4 +40,5 @@ export class UnsupportedConnector implements DataConnector {
     return this.unavailable();
   }
   async close() {}
+  async cancelActiveQuery() {}
 }

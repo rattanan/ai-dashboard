@@ -1,5 +1,8 @@
 import Link from "next/link";
-import { LayoutDashboard } from "lucide-react";
+import {
+  InsightKmMark,
+  InsightKmWordmark,
+} from "@/components/brand/insightkm-mark";
 
 export default function AuthLayout({
   children,
@@ -9,17 +12,13 @@ export default function AuthLayout({
   return (
     <main
       id="main-content"
-      className="grid min-h-dvh place-items-center bg-background px-4 py-10"
+      className="relative grid min-h-dvh place-items-center overflow-hidden bg-background px-4 py-10"
     >
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-72 bg-[radial-gradient(circle_at_50%_-20%,rgba(99,102,241,0.18),transparent_66%)]" />
       <div className="w-full max-w-md">
-        <Link
-          href="/"
-          className="mb-8 flex items-center justify-center gap-2 font-semibold text-slate-950"
-        >
-          <span className="grid size-9 place-items-center rounded-lg bg-primary text-white">
-            <LayoutDashboard size={19} aria-hidden="true" />
-          </span>
-          AI Dashboard
+        <Link href="/" className="mb-8 flex items-center justify-center gap-3">
+          <InsightKmMark />
+          <InsightKmWordmark />
         </Link>
         {children}
       </div>

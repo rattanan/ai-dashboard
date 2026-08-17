@@ -106,6 +106,7 @@ function normalizeValue(value: unknown): unknown {
 }
 
 export class OracleConnector implements DataConnector {
+  private activeConnection?: Connection;
   constructor(private readonly configuration: ConnectorConfiguration) {}
 
   validateConfiguration(): AppResult<{ valid: true }> {
@@ -159,10 +160,12 @@ export class OracleConnector implements DataConnector {
   ): Promise<AppResult<T>> {
     try {
       const connection = await (await this.pool()).getConnection();
+      this.activeConnection = connection;
       connection.callTimeout = 30_000;
       try {
         return success(await callback(connection));
       } finally {
+        this.activeConnection = undefined;
         await connection.close();
       }
     } catch (error) {
@@ -358,8 +361,11 @@ export class OracleConnector implements DataConnector {
       { timeoutMs: 10_000 },
     );
   }
-  async executeReadOnlyQuery(sql: string, options?: { timeoutMs?: number }) {
-    const guarded = validateOracleReadOnlySql(sql);
+  async executeReadOnlyQuery(
+    sql: string,
+    options?: { timeoutMs?: number; maxRows?: number },
+  ) {
+    const guarded = validateOracleReadOnlySql(sql, options?.maxRows ?? 1_000);
     if (!guarded.ok) return guarded;
     return this.withConnection("executeReadOnlyQuery", async (connection) => {
       connection.callTimeout = options?.timeoutMs ?? 10_000;
@@ -368,7 +374,7 @@ export class OracleConnector implements DataConnector {
         [],
         {
           outFormat: oracledb.OUT_FORMAT_OBJECT,
-          maxRows: 10_000,
+          maxRows: Math.min(options?.maxRows ?? 1_000, 10_000),
           fetchArraySize: 100,
         },
       );
@@ -384,5 +390,8 @@ export class OracleConnector implements DataConnector {
   }
   async close() {
     /* Shared pools remain warm and are released on process shutdown. */
+  }
+  async cancelActiveQuery() {
+    await this.activeConnection?.break();
   }
 }

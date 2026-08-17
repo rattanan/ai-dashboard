@@ -13,8 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: { default: "AI Dashboard", template: "%s · AI Dashboard" },
-  description: "Connect business data and prepare AI-assisted dashboards.",
+  title: { default: "InsightKM", template: "%s · InsightKM" },
+  description:
+    "Secure enterprise knowledge, governed AI assistants, and business insight in one platform.",
 };
 
 export default function RootLayout({

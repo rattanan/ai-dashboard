@@ -4,24 +4,24 @@ import { requireAuthorization } from "@/server/auth/authorization";
 import { dataSourceRepository } from "@/server/repositories/data-sources";
 import { formatDate } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
+import { DataSourceStatusBadge } from "@/components/data-sources/status-badge";
 
-export const metadata = { title: "Data sources" };
+export const metadata = { title: "Knowledge sources" };
 export default async function DataSourcesPage() {
   const context = await requireAuthorization();
   const sources = await dataSourceRepository.list(context);
   return (
     <div className="space-y-7">
       <PageHeader
-        title="Data sources"
-        description="Manage tenant-scoped connections and the metadata available to dashboard designers."
+        title="Knowledge sources"
+        description="Manage governed databases and files that ground InsightKM answers and business insights."
         action={
           <Button asChild>
             <Link href="/workspace/data-sources/new">
               <Plus size={18} />
-              New data source
+              Add knowledge source
             </Link>
           </Button>
         }
@@ -42,7 +42,7 @@ export default async function DataSourcesPage() {
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <h2 className="truncate font-semibold">{source.name}</h2>
-                      <StatusBadge status={source.status} />
+                      <DataSourceStatusBadge status={source.status} />
                     </div>
                     <p className="mt-1 text-sm text-muted-foreground">
                       {source.type} ·{" "}
@@ -64,10 +64,10 @@ export default async function DataSourcesPage() {
         <Card className="border-dashed">
           <CardContent className="grid place-items-center p-12 text-center">
             <Database className="mb-4 text-slate-400" size={34} />
-            <h2 className="font-semibold">No data sources yet</h2>
+            <h2 className="font-semibold">No knowledge sources yet</h2>
             <p className="mt-2 max-w-md text-sm text-muted-foreground">
-              Use the guided setup to add MySQL or prepare another supported
-              source.
+              Use the guided setup to connect a trusted database or import a
+              supported business file.
             </p>
             <Button asChild className="mt-5">
               <Link href="/workspace/data-sources/new">Open setup wizard</Link>
@@ -77,15 +77,4 @@ export default async function DataSourcesPage() {
       )}
     </div>
   );
-}
-export function StatusBadge({ status }: { status: string }) {
-  const tone =
-    status === "CONNECTED"
-      ? "success"
-      : status === "FAILED"
-        ? "danger"
-        : status === "TESTING"
-          ? "warning"
-          : "neutral";
-  return <Badge tone={tone}>{status.replaceAll("_", " ")}</Badge>;
 }

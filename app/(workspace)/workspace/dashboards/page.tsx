@@ -11,7 +11,7 @@ import { hasPermission } from "@/server/auth/permissions";
 import { DashboardActions } from "@/components/dashboard/dashboard-actions";
 import { canStartDashboardAnalysis } from "@/server/services/dashboard-analysis-state";
 
-export const metadata = { title: "Dashboards" };
+export const metadata = { title: "Business insights" };
 export default async function DashboardsPage() {
   const context = await requireAuthorization();
   const [dashboards, canCreateDashboard, canUpdate, canDelete, manageAll] =
@@ -25,14 +25,14 @@ export default async function DashboardsPage() {
   return (
     <div className="space-y-7">
       <PageHeader
-        title="Dashboards"
-        description="Saved business context, layout choices, versions, and future AI-generated content."
+        title="Business insights"
+        description="Review grounded analysis, business context, and decision-ready insight workspaces."
         action={
           canCreateDashboard ? (
             <Button asChild>
               <Link href="/workspace/dashboards/new">
                 <Plus size={17} />
-                Create dashboard
+                Create insight workspace
               </Link>
             </Button>
           ) : undefined
@@ -131,15 +131,15 @@ export default async function DashboardsPage() {
         <Card className="border-dashed">
           <CardContent className="grid place-items-center p-12 text-center">
             <LayoutDashboard className="mb-4 text-slate-400" size={34} />
-            <h2 className="font-semibold">No dashboard configurations</h2>
+            <h2 className="font-semibold">No business insights yet</h2>
             <p className="mt-2 max-w-md text-sm text-muted-foreground">
-              A dashboard draft is created during the data-source setup wizard.
+              An insight workspace is created during the knowledge-source setup.
             </p>
             {canCreateDashboard ? (
               <Button asChild className="mt-5">
                 <Link href="/workspace/dashboards/new">
                   <Plus size={17} />
-                  Create dashboard
+                  Create insight workspace
                 </Link>
               </Button>
             ) : null}

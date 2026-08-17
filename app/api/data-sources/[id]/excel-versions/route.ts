@@ -9,11 +9,22 @@ import { ExcelUploadService } from "@/server/services/excel";
 import { replaceExcelVersion } from "@/server/services/excel-version";
 import { LocalObjectStorageService } from "@/server/storage/local-storage";
 import { failure, success } from "@/types/result";
+import { contentLengthWithinLimit } from "@/server/http/request-security";
 
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  if (
+    !contentLengthWithinLimit(
+      request,
+      env().MAX_EXCEL_UPLOAD_BYTES + 64 * 1_024,
+    )
+  )
+    return Response.json(
+      failure("FILE_INVALID", "Upload exceeds the size limit."),
+      { status: 413 },
+    );
   let storage: LocalObjectStorageService | undefined;
   let storedKey: string | undefined;
   try {

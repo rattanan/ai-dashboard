@@ -200,7 +200,7 @@ export class MySqlConnector implements DataConnector {
       const [rows] = await (
         await this.getConnection()
       ).query<RowDataPacket[]>(
-        `SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE, TABLE_ROWS FROM information_schema.TABLES WHERE TABLE_SCHEMA IN (${values.map(() => "?").join(",")}) ORDER BY TABLE_SCHEMA, TABLE_NAME`,
+        `SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE, TABLE_ROWS, TABLE_COMMENT FROM information_schema.TABLES WHERE TABLE_SCHEMA IN (${values.map(() => "?").join(",")}) ORDER BY TABLE_SCHEMA, TABLE_NAME`,
         values,
       );
       return success(
@@ -210,6 +210,7 @@ export class MySqlConnector implements DataConnector {
           tableType: String(row.TABLE_TYPE) === "VIEW" ? "VIEW" : "TABLE",
           estimatedRowCount:
             row.TABLE_ROWS == null ? null : BigInt(row.TABLE_ROWS),
+          comment: row.TABLE_COMMENT == null ? null : String(row.TABLE_COMMENT),
         })),
       );
     } catch (error) {
@@ -227,7 +228,7 @@ export class MySqlConnector implements DataConnector {
       const [rows] = await (
         await this.getConnection()
       ).query<RowDataPacket[]>(
-        `SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, COLUMN_TYPE, ORDINAL_POSITION, IS_NULLABLE, COLUMN_KEY, COLUMN_DEFAULT FROM information_schema.COLUMNS WHERE TABLE_SCHEMA IN (${values.map(() => "?").join(",")}) ORDER BY TABLE_SCHEMA, TABLE_NAME, ORDINAL_POSITION`,
+        `SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, COLUMN_TYPE, ORDINAL_POSITION, IS_NULLABLE, COLUMN_KEY, COLUMN_DEFAULT, COLUMN_COMMENT FROM information_schema.COLUMNS WHERE TABLE_SCHEMA IN (${values.map(() => "?").join(",")}) ORDER BY TABLE_SCHEMA, TABLE_NAME, ORDINAL_POSITION`,
         values,
       );
       return success(
@@ -241,6 +242,8 @@ export class MySqlConnector implements DataConnector {
           primaryKey: row.COLUMN_KEY === "PRI",
           defaultValue:
             row.COLUMN_DEFAULT == null ? null : String(row.COLUMN_DEFAULT),
+          comment:
+            row.COLUMN_COMMENT == null ? null : String(row.COLUMN_COMMENT),
         })),
       );
     } catch (error) {
@@ -286,20 +289,26 @@ export class MySqlConnector implements DataConnector {
 
   async executeReadOnlyQuery(
     sql: string,
-    options?: { timeoutMs?: number },
+    options?: { timeoutMs?: number; maxRows?: number },
   ): Promise<AppResult<Record<string, unknown>[]>> {
-    const guarded = validateReadOnlySql(sql);
+    const guarded = validateReadOnlySql(sql, options?.maxRows ?? 1_000);
     if (!guarded.ok) return guarded;
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const [rows] = await (
-          await this.getConnection()
-        ).query<RowDataPacket[]>({
+        const connection = await this.getConnection();
+        await connection.query("START TRANSACTION READ ONLY");
+        const [rows] = await connection.query<RowDataPacket[]>({
           sql: guarded.data.sql,
           timeout: options?.timeoutMs ?? 10_000,
         });
+        await connection.query("ROLLBACK");
         return success(rows as Record<string, unknown>[]);
       } catch (error) {
+        try {
+          await this.connection?.query("ROLLBACK");
+        } catch {
+          /* connection may be unavailable */
+        }
         if (attempt === 0 && isTransientConnectionError(error)) {
           this.connection?.destroy();
           this.connection = undefined;
@@ -322,6 +331,11 @@ export class MySqlConnector implements DataConnector {
 
   async close() {
     if (this.connection) await this.connection.end();
+    this.connection = undefined;
+  }
+
+  async cancelActiveQuery() {
+    this.connection?.destroy();
     this.connection = undefined;
   }
 }

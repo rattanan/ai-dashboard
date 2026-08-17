@@ -2,6 +2,7 @@
 
 import { AuthError } from "next-auth";
 import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { auth, signIn, signOut } from "@/auth";
 import {
@@ -41,6 +42,7 @@ export async function loginAction(
       identifier: String(formData.get("identifier") ?? ""),
       password: String(formData.get("password") ?? ""),
       rememberMe: formData.get("rememberMe") === "on",
+      organization: String(formData.get("organization") ?? ""),
       redirect: false,
     });
     const session = await auth();
@@ -83,6 +85,57 @@ export async function logoutAction() {
   await signOut({ redirectTo: "/" });
 }
 
+export async function logoutAllSessionsAction() {
+  const session = await auth();
+  if (!session?.user?.id) redirect("/login");
+  const membership = await db.organizationMember.findFirst({
+    where: { userId: session.user.id },
+  });
+  await db.$transaction(async (tx) => {
+    await tx.user.update({
+      where: { id: session.user.id },
+      data: { sessionVersion: { increment: 1 } },
+    });
+    await tx.session.deleteMany({ where: { userId: session.user.id } });
+    if (membership)
+      await tx.auditLog.create({
+        data: {
+          organizationId: membership.organizationId,
+          actorId: session.user.id,
+          action: "LOGOUT_ALL_SESSIONS",
+          entityType: "User",
+          entityId: session.user.id,
+        },
+      });
+  });
+  await signOut({ redirectTo: "/login?sessionsRevoked=1" });
+}
+
+export async function updateProfileAction(formData: FormData) {
+  const session = await auth();
+  if (!session?.user?.id) redirect("/login");
+  const name = String(formData.get("name") ?? "").trim();
+  if (name.length < 2 || name.length > 100) return;
+  const membership = await db.organizationMember.findFirst({
+    where: { userId: session.user.id },
+  });
+  await db.$transaction(async (tx) => {
+    await tx.user.update({ where: { id: session.user.id }, data: { name } });
+    if (membership)
+      await tx.auditLog.create({
+        data: {
+          organizationId: membership.organizationId,
+          actorId: session.user.id,
+          action: "PROFILE_UPDATED",
+          entityType: "User",
+          entityId: session.user.id,
+          afterValue: { name },
+        },
+      });
+  });
+  revalidatePath("/workspace/profile");
+}
+
 export async function forgotPasswordAction(
   _previous: AppResult<{
     submitted: true;
@@ -96,18 +149,20 @@ export async function forgotPasswordAction(
       fieldErrors: parsed.error.flatten().fieldErrors,
     });
   const requestHeaders = await headers();
-  const requestKey =
+  const requestIp =
     requestHeaders.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-    requestHeaders.get("x-real-ip") ||
-    parsed.data.email;
-  if (
-    !(await consumeRateLimit(
-      "forgot-password",
-      requestKey,
-      Math.min(10, env().LOGIN_RATE_LIMIT_MAX_ATTEMPTS),
-      env().LOGIN_RATE_LIMIT_WINDOW_MINUTES,
-    ))
-  )
+    requestHeaders.get("x-real-ip");
+  const recoveryLimits = await Promise.all(
+    [...new Set([parsed.data.email, requestIp].filter(Boolean))].map((key) =>
+      consumeRateLimit(
+        "forgot-password",
+        String(key),
+        Math.min(10, env().LOGIN_RATE_LIMIT_MAX_ATTEMPTS),
+        env().LOGIN_RATE_LIMIT_WINDOW_MINUTES,
+      ),
+    ),
+  );
+  if (recoveryLimits.some((allowed) => !allowed))
     return success<{ submitted: true; developmentResetUrl?: string }>({
       submitted: true,
     });

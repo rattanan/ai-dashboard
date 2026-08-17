@@ -1,14 +1,18 @@
 import type { Prisma } from "@/generated/prisma/client";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import type { AuthorizationContext } from "@/server/auth/authorization";
 import { createConnector } from "@/server/connectors/factory";
 import type { ConnectorConfiguration } from "@/server/connectors/types";
 import { db } from "@/server/db";
-import { AesGcmCredentialEncryptionService } from "@/server/services/encryption";
+import {
+  AesGcmCredentialEncryptionService,
+  parseEncryptionKeyRing,
+} from "@/server/services/encryption";
 import { logger } from "@/server/services/logger";
 import { env } from "@/schemas/env";
 import { failure, success } from "@/types/result";
-import { dataSourceRepository } from "@/server/repositories/data-sources";
+import { authorizeResource } from "@/server/auth/resource-authorization";
 import { LocalObjectStorageService } from "@/server/storage/local-storage";
 
 function batches<T>(values: T[], size = 500) {
@@ -16,6 +20,10 @@ function batches<T>(values: T[], size = 500) {
   for (let index = 0; index < values.length; index += size)
     result.push(values.slice(index, index + size));
   return result;
+}
+
+function fingerprint(value: unknown) {
+  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
 function encryptionService() {
@@ -26,6 +34,7 @@ function encryptionService() {
       "base64",
     ),
     config.CREDENTIAL_KEY_VERSION,
+    parseEncryptionKeyRing(config.CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS),
   );
 }
 
@@ -33,7 +42,12 @@ export async function getDataSourceConnector(
   context: AuthorizationContext,
   id: string,
 ) {
-  const source = await dataSourceRepository.find(context, id);
+  const decision = await authorizeResource(context, "DATA_SOURCE", id, "VIEW");
+  if (!decision.allowed) return failure("NOT_FOUND", "Data source not found.");
+  const source = await db.dataSource.findFirst({
+    where: { id, workspaceId: context.workspaceId },
+    include: { credential: true },
+  });
   if (!source) return failure("NOT_FOUND", "Data source not found.");
   let password: string | undefined;
   if (source.credential) {
@@ -112,10 +126,10 @@ export async function discoverDataSource(
   const resolved = await getDataSourceConnector(context, id);
   if (!resolved.ok) return resolved;
   const { connector, source } = resolved.data;
-  if (source.type !== "MYSQL" && source.type !== "ORACLE")
+  if (source.type === "EXCEL")
     return failure(
       "CONNECTOR_NOT_IMPLEMENTED",
-      `${source.type} metadata discovery is planned for a later phase.`,
+      "Excel metadata is managed by the workbook import pipeline.",
     );
   try {
     const schemas = await connector.listSchemas();
@@ -146,35 +160,179 @@ export async function discoverDataSource(
     if (!columns.ok) return columns;
     if (!relationships.ok) return relationships;
 
+    const existing = await db.dataSourceSchema.findMany({
+      where: { dataSourceId: source.id },
+      include: { tables: { include: { columns: true } } },
+    });
+    const nextVersion = source.metadataVersion + 1;
+    const incomingSchemaNames = new Set(schemasToScan.map((item) => item.name));
+    const incomingTables = new Map<
+      string,
+      (typeof tables.data)[number] & { fingerprint: string }
+    >(
+      tables.data.map((table) => [
+        `${table.schemaName}.${table.name}`,
+        {
+          ...table,
+          fingerprint: fingerprint({
+            type: table.tableType,
+            estimatedRows: table.estimatedRowCount?.toString() ?? null,
+            comment: table.comment ?? null,
+          }),
+        },
+      ]),
+    );
+    const incomingColumns = new Map<
+      string,
+      (typeof columns.data)[number] & { fingerprint: string }
+    >(
+      columns.data.map((column) => [
+        `${column.schemaName}.${column.tableName}.${column.name}`,
+        {
+          ...column,
+          fingerprint: fingerprint({
+            type: column.dataType,
+            ordinal: column.ordinal,
+            nullable: column.nullable,
+            primaryKey: column.primaryKey,
+            defaultValue: column.defaultValue,
+            comment: column.comment ?? null,
+          }),
+        },
+      ]),
+    );
+    const currentSchemaNames = new Set(existing.map((schema) => schema.name));
+    const currentTables = new Map<
+      string,
+      (typeof existing)[number]["tables"][number]
+    >(
+      existing.flatMap((schema) =>
+        schema.tables.map(
+          (table) => [`${schema.name}.${table.name}`, table] as const,
+        ),
+      ),
+    );
+    const currentColumns = new Map<
+      string,
+      (typeof existing)[number]["tables"][number]["columns"][number]
+    >(
+      existing.flatMap((schema) =>
+        schema.tables.flatMap((table) =>
+          table.columns.map(
+            (column) =>
+              [`${schema.name}.${table.name}.${column.name}`, column] as const,
+          ),
+        ),
+      ),
+    );
+    const diff = {
+      addedSchemas: [...incomingSchemaNames].filter(
+        (name) => !currentSchemaNames.has(name),
+      ).length,
+      changedSchemas: 0,
+      removedSchemas: [...currentSchemaNames].filter(
+        (name) => !incomingSchemaNames.has(name),
+      ).length,
+      addedTables: [...incomingTables.keys()].filter(
+        (key) => !currentTables.has(key),
+      ).length,
+      changedTables: [...incomingTables].filter(([key, value]) => {
+        const current = currentTables.get(key);
+        return current && current.metadataFingerprint !== value.fingerprint;
+      }).length,
+      removedTables: [...currentTables.keys()].filter(
+        (key) => !incomingTables.has(key),
+      ).length,
+      addedColumns: [...incomingColumns.keys()].filter(
+        (key) => !currentColumns.has(key),
+      ).length,
+      changedColumns: [...incomingColumns].filter(([key, value]) => {
+        const current = currentColumns.get(key);
+        return current && current.metadataFingerprint !== value.fingerprint;
+      }).length,
+      removedColumns: [...currentColumns.keys()].filter(
+        (key) => !incomingColumns.has(key),
+      ).length,
+    };
+    const sourceFingerprint = fingerprint({
+      schemas: [...incomingSchemaNames].sort(),
+      tables: [...incomingTables].sort(([a], [b]) => a.localeCompare(b)),
+      columns: [...incomingColumns].sort(([a], [b]) => a.localeCompare(b)),
+      relationships: relationships.data,
+    });
+
     await db.$transaction(
       async (tx) => {
-        await tx.dataSourceSchema.deleteMany({
-          where: { dataSourceId: source.id },
-        });
         const schemaIds = new Map<string, string>();
         for (const schema of schemasToScan) {
-          const createdSchema = await tx.dataSourceSchema.create({
-            data: { dataSourceId: source.id, name: schema.name },
+          const schemaFingerprint = fingerprint({ name: schema.name });
+          const createdSchema = await tx.dataSourceSchema.upsert({
+            where: {
+              dataSourceId_name: { dataSourceId: source.id, name: schema.name },
+            },
+            create: {
+              dataSourceId: source.id,
+              name: schema.name,
+              metadataFingerprint: schemaFingerprint,
+              lastSeenVersion: nextVersion,
+            },
+            update: {
+              metadataFingerprint: schemaFingerprint,
+              lastSeenVersion: nextVersion,
+            },
           });
           schemaIds.set(schema.name, createdSchema.id);
         }
-        for (const batch of batches(tables.data)) {
-          await tx.dataSourceTable.createMany({
-            data: batch.flatMap((table) => {
-              const schemaId = schemaIds.get(table.schemaName);
-              return schemaId
-                ? [
-                    {
-                      schemaId,
-                      name: table.name,
-                      tableType: table.tableType,
-                      estimatedRowCount: table.estimatedRowCount,
-                    },
-                  ]
-                : [];
-            }),
+        await tx.dataSourceSchema.deleteMany({
+          where: {
+            dataSourceId: source.id,
+            lastSeenVersion: { lt: nextVersion },
+          },
+        });
+        for (const table of incomingTables.values()) {
+          const schemaId = schemaIds.get(table.schemaName);
+          if (!schemaId) continue;
+          const previous = currentTables.get(
+            `${table.schemaName}.${table.name}`,
+          );
+          const metadataChanged =
+            previous?.metadataFingerprint !== table.fingerprint;
+          await tx.dataSourceTable.upsert({
+            where: { schemaId_name: { schemaId, name: table.name } },
+            create: {
+              schemaId,
+              name: table.name,
+              tableType: table.tableType,
+              estimatedRowCount: table.estimatedRowCount,
+              databaseComment: table.comment,
+              metadataFingerprint: table.fingerprint,
+              lastSeenVersion: nextVersion,
+            },
+            update: {
+              tableType: table.tableType,
+              estimatedRowCount: table.estimatedRowCount,
+              databaseComment: table.comment,
+              metadataFingerprint: table.fingerprint,
+              lastSeenVersion: nextVersion,
+              ...(metadataChanged
+                ? {
+                    semanticDescription: null,
+                    semanticModel: null,
+                    semanticFingerprint: null,
+                    semanticEmbedding: null,
+                    semanticEmbeddingModel: null,
+                    semanticEmbeddingDimension: null,
+                  }
+                : {}),
+            },
           });
         }
+        await tx.dataSourceTable.deleteMany({
+          where: {
+            schema: { dataSourceId: source.id },
+            lastSeenVersion: { lt: nextVersion },
+          },
+        });
         const persistedTables = await tx.dataSourceTable.findMany({
           where: { schema: { dataSourceId: source.id } },
           include: { schema: { select: { name: true } } },
@@ -185,26 +343,58 @@ export async function discoverDataSource(
             table.id,
           ]),
         );
-        const columnRecords = columns.data.flatMap((column) => {
+        for (const column of incomingColumns.values()) {
           const tableId = tableIds.get(
             `${column.schemaName}.${column.tableName}`,
           );
-          return tableId
-            ? [
-                {
-                  tableId,
-                  name: column.name,
-                  dataType: column.dataType,
-                  ordinal: column.ordinal,
-                  nullable: column.nullable,
-                  primaryKey: column.primaryKey,
-                  defaultValue: column.defaultValue,
-                },
-              ]
-            : [];
+          if (!tableId) continue;
+          const previous = currentColumns.get(
+            `${column.schemaName}.${column.tableName}.${column.name}`,
+          );
+          const metadataChanged =
+            previous?.metadataFingerprint !== column.fingerprint;
+          await tx.dataSourceColumn.upsert({
+            where: { tableId_name: { tableId, name: column.name } },
+            create: {
+              tableId,
+              name: column.name,
+              dataType: column.dataType,
+              ordinal: column.ordinal,
+              nullable: column.nullable,
+              primaryKey: column.primaryKey,
+              defaultValue: column.defaultValue,
+              databaseComment: column.comment,
+              metadataFingerprint: column.fingerprint,
+              lastSeenVersion: nextVersion,
+            },
+            update: {
+              dataType: column.dataType,
+              ordinal: column.ordinal,
+              nullable: column.nullable,
+              primaryKey: column.primaryKey,
+              defaultValue: column.defaultValue,
+              databaseComment: column.comment,
+              metadataFingerprint: column.fingerprint,
+              lastSeenVersion: nextVersion,
+              ...(metadataChanged
+                ? {
+                    semanticDescription: null,
+                    semanticModel: null,
+                    semanticFingerprint: null,
+                  }
+                : {}),
+            },
+          });
+        }
+        await tx.dataSourceColumn.deleteMany({
+          where: {
+            table: { schema: { dataSourceId: source.id } },
+            lastSeenVersion: { lt: nextVersion },
+          },
         });
-        for (const batch of batches(columnRecords))
-          await tx.dataSourceColumn.createMany({ data: batch });
+        await tx.dataSourceRelationship.deleteMany({
+          where: { fromTable: { schema: { dataSourceId: source.id } } },
+        });
         const relationshipRecords = relationships.data.flatMap((relation) => {
           const fromTableId = tableIds.get(
             `${relation.fromSchema}.${relation.fromTable}`,
@@ -231,7 +421,21 @@ export async function discoverDataSource(
           });
         await tx.dataSource.update({
           where: { id: source.id },
-          data: { lastDiscoveredAt: new Date() },
+          data: {
+            lastDiscoveredAt: new Date(),
+            metadataVersion: nextVersion,
+            metadataFingerprint: sourceFingerprint,
+            lastMetadataDiff: diff,
+          },
+        });
+        await tx.metadataRefreshRun.create({
+          data: {
+            dataSourceId: source.id,
+            version: nextVersion,
+            status: "COMPLETED",
+            ...diff,
+            completedAt: new Date(),
+          },
         });
         await tx.auditLog.create({
           data: {
@@ -245,6 +449,8 @@ export async function discoverDataSource(
               schemas: schemasToScan.length,
               tables: tables.data.length,
               columns: columns.data.length,
+              metadataVersion: nextVersion,
+              diff,
             },
           },
         });
@@ -258,6 +464,8 @@ export async function discoverDataSource(
       schemas: schemasToScan.length,
       tables: tables.data.length,
       columns: columns.data.length,
+      metadataVersion: nextVersion,
+      diff,
     });
   } catch (error) {
     logger.error("Metadata discovery failed", { dataSourceId: id, error });

@@ -223,15 +223,13 @@ describe("OpenAI-compatible provider", () => {
   it("rejects invalid structured output without extracting text", async () => {
     vi.stubGlobal(
       "fetch",
-      vi
-        .fn()
-        .mockImplementation(() =>
-          Promise.resolve(
-            Response.json({
-              choices: [{ message: { content: "Result: {}" } }],
-            }),
-          ),
+      vi.fn().mockImplementation(() =>
+        Promise.resolve(
+          Response.json({
+            choices: [{ message: { content: "Result: {}" } }],
+          }),
         ),
+      ),
     );
     const result = await new OpenAICompatibleProvider(
       configuration,

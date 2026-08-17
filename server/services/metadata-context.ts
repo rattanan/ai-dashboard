@@ -10,6 +10,8 @@ import { getDataSourceConnector } from "./data-source-service";
 import { sanitizeSampleRow } from "./sensitive-data";
 import { failure, success } from "@/types/result";
 import type { AppResult } from "@/types/result";
+import { getEffectiveAiPrivacyPolicy } from "./privacy-policy";
+import type { PiiMaskingRules } from "./sensitive-data";
 
 export type MetadataTableSnapshot = {
   id: string;
@@ -17,12 +19,17 @@ export type MetadataTableSnapshot = {
   name: string;
   kind: "TABLE" | "VIEW";
   estimatedRowCount: bigint | null;
+  databaseComment?: string | null;
+  semanticDescription?: string | null;
+  sampleDataEnabled?: boolean;
   columns: Array<{
     name: string;
     dataType: string;
     nullable: boolean;
     primaryKey: boolean;
     ordinal: number;
+    databaseComment?: string | null;
+    semanticDescription?: string | null;
   }>;
 };
 
@@ -36,7 +43,7 @@ export type MetadataRelationshipSnapshot = {
 
 export type MetadataContextInput = {
   dataSourceName: string;
-  dataSourceType?: "MYSQL" | "ORACLE";
+  dataSourceType?: "MYSQL" | "POSTGRESQL" | "MSSQL" | "ORACLE";
   tables: MetadataTableSnapshot[];
   relationships: MetadataRelationshipSnapshot[];
   businessObjective: MetadataContext["businessObjective"];
@@ -51,6 +58,7 @@ export type MetadataContextLimits = {
   maxContextCharacters: number;
   sendSampleData: boolean;
   maskSensitiveData: boolean;
+  maskingRules?: PiiMaskingRules;
 };
 
 const MAX_REPORTED_OMITTED_TABLES = 100;
@@ -231,10 +239,13 @@ export async function buildMetadataContext(
         dataType: column.dataType,
         nullable: column.nullable,
         primaryKey: column.primaryKey,
+        databaseComment: column.databaseComment ?? null,
+        semanticDescription: column.semanticDescription ?? null,
       }));
     let sampleRows: Record<string, unknown>[] = [];
     if (
       limits.sendSampleData &&
+      table.sampleDataEnabled === true &&
       sampleLoader &&
       limits.sampleRowsPerTable > 0
     ) {
@@ -243,6 +254,7 @@ export async function buildMetadataContext(
       sampleRows = samples.data.map((row) =>
         sanitizeSampleRow(row, {
           maskSensitiveData: limits.maskSensitiveData,
+          maskingRules: limits.maskingRules,
           maxLength: limits.maxSampleCellLength,
         }),
       );
@@ -252,6 +264,8 @@ export async function buildMetadataContext(
       name: table.name,
       kind: table.kind,
       estimatedRowCount: table.estimatedRowCount?.toString() ?? null,
+      databaseComment: table.databaseComment ?? null,
+      semanticDescription: table.semanticDescription ?? null,
       columns,
       omittedColumnCount: Math.max(0, table.columns.length - columns.length),
       sampleRows,
@@ -328,7 +342,14 @@ export async function buildMetadataContextForDashboard(
     include: {
       dataSources: {
         include: {
-          dataSource: { select: { id: true, name: true, type: true } },
+          dataSource: {
+            select: {
+              id: true,
+              name: true,
+              type: true,
+              sampleDataEnabled: true,
+            },
+          },
         },
       },
     },
@@ -340,10 +361,15 @@ export async function buildMetadataContextForDashboard(
       "Phase 1 analysis requires exactly one data source.",
     );
   const source = dashboard.dataSources[0].dataSource;
-  if (source.type !== "MYSQL" && source.type !== "ORACLE")
+  if (
+    source.type !== "MYSQL" &&
+    source.type !== "POSTGRESQL" &&
+    source.type !== "MSSQL" &&
+    source.type !== "ORACLE"
+  )
     return failure(
       "CONNECTOR_NOT_IMPLEMENTED",
-      "Phase 1 live analysis supports MySQL and Oracle data sources.",
+      "Live analysis supports MySQL, PostgreSQL, SQL Server, and Oracle data sources.",
     );
   if (!dashboard.businessObjective)
     return failure(
@@ -377,12 +403,17 @@ export async function buildMetadataContextForDashboard(
       name: table.name,
       kind: table.tableType === "VIEW" ? "VIEW" : "TABLE",
       estimatedRowCount: table.estimatedRowCount,
+      databaseComment: table.databaseComment,
+      semanticDescription: table.semanticDescription,
+      sampleDataEnabled: table.sampleDataEnabled,
       columns: table.columns.map((column) => ({
         name: column.name,
         dataType: column.dataType,
         nullable: column.nullable,
         primaryKey: column.primaryKey,
         ordinal: column.ordinal,
+        databaseComment: column.databaseComment,
+        semanticDescription: column.semanticDescription,
       })),
     })),
     relationships: selectedTables.flatMap((table) =>
@@ -410,6 +441,9 @@ export async function buildMetadataContextForDashboard(
     },
   };
   const configuration = env();
+  const privacyPolicy = await getEffectiveAiPrivacyPolicy(
+    authorization.organizationId,
+  );
   const limits: MetadataContextLimits = {
     maxTables: configuration.AI_MAX_TABLES,
     maxColumnsPerTable: configuration.AI_MAX_COLUMNS_PER_TABLE,
@@ -419,8 +453,9 @@ export async function buildMetadataContextForDashboard(
       configuration.AI_MAX_CONTEXT_CHARACTERS,
       STRUCTURED_AI_METADATA_MAX_CHARACTERS,
     ),
-    sendSampleData: configuration.AI_SEND_SAMPLE_DATA,
-    maskSensitiveData: configuration.AI_MASK_SENSITIVE_DATA,
+    sendSampleData: privacyPolicy.sendSampleData && source.sampleDataEnabled,
+    maskSensitiveData: privacyPolicy.maskSensitiveData,
+    maskingRules: privacyPolicy.maskingRules,
   };
   if (!limits.sendSampleData) return buildMetadataContext(input, limits);
 

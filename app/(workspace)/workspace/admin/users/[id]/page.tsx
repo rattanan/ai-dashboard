@@ -26,52 +26,75 @@ export default async function UserDetailPage({
   const context = await requireAuthorization();
   await requirePermission(context, "user.update");
   await ensureOrganizationSystemRoles(context.organizationId);
-  const [user, roles, sources, dashboards, activity, logins, canDelete] =
-    await Promise.all([
-      db.user.findFirst({
-        where: {
-          id,
-          memberships: { some: { organizationId: context.organizationId } },
+  const [
+    user,
+    roles,
+    sources,
+    dashboards,
+    activity,
+    logins,
+    canDelete,
+    organizationUnits,
+    projects,
+  ] = await Promise.all([
+    db.user.findFirst({
+      where: {
+        id,
+        memberships: { some: { organizationId: context.organizationId } },
+      },
+      include: {
+        userRoles: {
+          where: { organizationId: context.organizationId },
+          include: { role: true },
         },
-        include: {
-          userRoles: {
-            where: { organizationId: context.organizationId },
-            include: { role: true },
-          },
-          aiAccessPolicies: {
-            where: { organizationId: context.organizationId },
-          },
-          dataSourceAccess: { include: { dataSource: true } },
-          dashboardAccess: { include: { dashboard: true } },
+        aiAccessPolicies: {
+          where: { organizationId: context.organizationId },
         },
-      }),
-      db.role.findMany({
-        where: { organizationId: context.organizationId },
-        orderBy: { name: "asc" },
-      }),
-      db.dataSource.findMany({
-        where: { workspaceId: context.workspaceId },
-        select: { id: true, name: true },
-      }),
-      db.dashboard.findMany({
-        where: { workspaceId: context.workspaceId },
-        select: { id: true, name: true },
-      }),
-      db.auditLog.findMany({
-        where: {
-          organizationId: context.organizationId,
-          OR: [{ actorId: id }, { entityType: "User", entityId: id }],
+        dataSourceAccess: { include: { dataSource: true } },
+        dashboardAccess: { include: { dashboard: true } },
+        memberships: {
+          where: { organizationId: context.organizationId },
+          include: { projects: true },
         },
-        orderBy: { createdAt: "desc" },
-        take: 20,
-      }),
-      db.loginHistory.findMany({
-        where: { organizationId: context.organizationId, userId: id },
-        orderBy: { createdAt: "desc" },
-        take: 10,
-      }),
-      hasPermission(context, "user.delete"),
-    ]);
+      },
+    }),
+    db.role.findMany({
+      where: { organizationId: context.organizationId },
+      orderBy: { name: "asc" },
+    }),
+    db.dataSource.findMany({
+      where: { workspaceId: context.workspaceId },
+      select: { id: true, name: true },
+    }),
+    db.dashboard.findMany({
+      where: { workspaceId: context.workspaceId },
+      select: { id: true, name: true },
+    }),
+    db.auditLog.findMany({
+      where: {
+        organizationId: context.organizationId,
+        OR: [{ actorId: id }, { entityType: "User", entityId: id }],
+      },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+    }),
+    db.loginHistory.findMany({
+      where: { organizationId: context.organizationId, userId: id },
+      orderBy: { createdAt: "desc" },
+      take: 10,
+    }),
+    hasPermission(context, "user.delete"),
+    db.organizationUnit.findMany({
+      where: { organizationId: context.organizationId, active: true },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    }),
+    db.organizationProject.findMany({
+      where: { organizationId: context.organizationId, active: true },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    }),
+  ]);
   if (!user) notFound();
   return (
     <div className="space-y-6">
@@ -106,7 +129,14 @@ export default async function UserDetailPage({
             email: user.email,
             username: user.username,
             copilotEnabled: user.aiAccessPolicies[0]?.copilotEnabled ?? false,
+            organizationUnitId: user.memberships[0]?.organizationUnitId ?? null,
+            projectIds:
+              user.memberships[0]?.projects.map(
+                (project) => project.projectId,
+              ) ?? [],
           }}
+          organizationUnits={organizationUnits}
+          projects={projects}
         />
       </section>
       <section className="grid gap-5 lg:grid-cols-2">

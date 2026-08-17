@@ -146,4 +146,22 @@ describe("grounded SQL validation", () => {
     );
     expect(result.ok).toBe(false);
   });
+
+  it("grounds Oracle tables and columns through an AST before restoring FETCH FIRST", () => {
+    const oracleScope = { ...scope, dataSourceType: "ORACLE" as const };
+    const valid = validateGroundedReadOnlySql(
+      'SELECT "ID", "ORDER_TOTAL" FROM "SHOP"."ORDERS"',
+      oracleScope,
+      25,
+    );
+    expect(valid.ok).toBe(true);
+    if (valid.ok) expect(valid.data.sql).toMatch(/FETCH FIRST 25 ROWS ONLY/i);
+    expect(
+      validateGroundedReadOnlySql(
+        'SELECT "PASSWORD_HASH" FROM "SHOP"."ORDERS"',
+        oracleScope,
+        25,
+      ).ok,
+    ).toBe(false);
+  });
 });

@@ -150,6 +150,66 @@ enum QueryExecutionStatus {
   FAILED
 }
 
+enum DatabaseQueryStatus {
+  CLARIFICATION_REQUIRED
+  READY_FOR_REVIEW
+  EXECUTING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum DatabaseQueryIntent {
+  DATABASE
+  DOCUMENT
+  CLARIFICATION
+}
+
+enum MetadataRefreshStatus {
+  PROCESSING
+  COMPLETED
+  PARTIAL
+  FAILED
+}
+
+enum LegacyApiAuthType {
+  NONE
+  API_KEY
+  BEARER
+  BASIC
+  CUSTOM_HEADER
+}
+
+enum LegacyApiHttpMethod {
+  GET
+  POST
+}
+
+enum LegacyApiInvocationStatus {
+  CLARIFICATION_REQUIRED
+  EXECUTING
+  COMPLETED
+  FAILED
+}
+
+enum UserMemoryCategory {
+  PREFERENCE
+  DEPARTMENT
+  PROJECT
+}
+
+enum MemoryConsentStatus {
+  GRANTED
+  REVOKED
+}
+
+enum BusinessInsightJobStatus {
+  PROCESSING
+  COMPLETED
+  INSUFFICIENT_DATA
+  FAILED
+}
+
 enum AccountStatus {
   PENDING_ACTIVATION
   ACTIVE
@@ -178,43 +238,177 @@ enum LoginEventStatus {
   LOGOUT
 }
 
+enum BotAccessLevel {
+  USE
+  MANAGE
+}
+
+enum KnowledgeAccessLevel {
+  READ
+  UPLOAD
+  MANAGE
+}
+
+enum DocumentVersionStatus {
+  UPLOADED
+  QUEUED
+  PROCESSING
+  INDEXED
+  FAILED
+  CANCELLED
+}
+
+enum IndexJobStatus {
+  QUEUED
+  PROCESSING
+  CANCEL_REQUESTED
+  CANCELLED
+  COMPLETED
+  FAILED
+  DEAD_LETTER
+}
+
+enum KnowledgeSourceType {
+  FILE
+  SHARED_FOLDER
+  WEB
+}
+
+enum SourceRefreshStatus {
+  QUEUED
+  PROCESSING
+  COMPLETED
+  PARTIAL
+  FAILED
+  CANCELLED
+}
+
+enum SourceRefreshTrigger {
+  MANUAL
+  SCHEDULED
+}
+
+enum SourceSnapshotStatus {
+  ACTIVE
+  DELETED
+  ERROR
+}
+
+enum IndexFailureCategory {
+  PARSER
+  EMBEDDING
+  STORAGE
+  QUEUE
+  CANCELLED
+  UNKNOWN
+}
+
+enum ChatMessageRole {
+  USER
+  ASSISTANT
+  SYSTEM
+}
+
+enum AuthenticationMode {
+  EMBEDDED
+  EXTERNAL_API
+  LOCAL
+}
+
+enum EmbeddedSignatureMode {
+  HMAC_SHA256
+  JWT_HS256
+  BOTH
+}
+
+enum ExternalAuthMethod {
+  GET
+  POST
+  PUT
+}
+
+enum ResourceType {
+  BOT
+  KNOWLEDGE_RACK
+  KNOWLEDGE_SOURCE
+  DOCUMENT
+  DATA_SOURCE
+  DATABASE_SCHEMA
+  DATABASE_TABLE
+  LEGACY_API
+  CHAT
+  INSIGHT
+}
+
+enum ResourceAccessEffect {
+  ALLOW
+  DENY
+}
+
+enum ResourceAccessLevel {
+  VIEW
+  USE
+  EDIT
+  MANAGE
+}
+
 model User {
-  id                    String                   @id @default(cuid())
-  name                  String?
-  email                 String                   @unique
-  emailVerified         DateTime?
-  image                 String?
-  passwordHash          String?
-  username              String?                  @unique
-  status                AccountStatus            @default(PENDING_ACTIVATION)
-  mustChangePassword    Boolean                  @default(false)
-  failedLoginCount      Int                      @default(0)
-  lockedUntil           DateTime?
-  lastLoginAt           DateTime?
-  sessionVersion        Int                      @default(1)
-  createdById           String?
-  deletedAt             DateTime?
-  createdBy             User?                    @relation("UserCreator", fields: [createdById], references: [id], onDelete: SetNull)
-  createdUsers          User[]                   @relation("UserCreator")
-  accounts              Account[]
-  sessions              Session[]
-  memberships           OrganizationMember[]
-  workspaces            Workspace[]              @relation("WorkspaceCreator")
-  dataSources           DataSource[]             @relation("DataSourceCreator")
-  dashboards            Dashboard[]              @relation("DashboardCreator")
-  auditLogs             AuditLog[]               @relation("AuditActor")
-  analysisJobs          AnalysisJob[]            @relation("AnalysisRequestedBy")
-  analysisReviews       AnalysisRecommendation[] @relation("AnalysisReviewedBy")
-  userRoles             UserRole[]
-  dataSourceAccess      DataSourceAccess[]
-  dashboardAccess       DashboardAccess[]
-  aiAccessPolicies      AIAccessPolicy[]
-  aiCopilotLogs         AiCopilotLog[]
-  passwordResets        PasswordResetToken[]
-  loginHistory          LoginHistory[]
-  uploadedExcelVersions ExcelFileVersion[]       @relation("ExcelVersionUploader")
-  createdAt             DateTime                 @default(now())
-  updatedAt             DateTime                 @updatedAt
+  id                        String                   @id @default(cuid())
+  name                      String?
+  email                     String                   @unique
+  emailVerified             DateTime?
+  image                     String?
+  passwordHash              String?
+  username                  String?                  @unique
+  status                    AccountStatus            @default(PENDING_ACTIVATION)
+  mustChangePassword        Boolean                  @default(false)
+  isShadow                  Boolean                  @default(false)
+  failedLoginCount          Int                      @default(0)
+  lockedUntil               DateTime?
+  lastLoginAt               DateTime?
+  sessionVersion            Int                      @default(1)
+  createdById               String?
+  deletedAt                 DateTime?
+  createdBy                 User?                    @relation("UserCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  createdUsers              User[]                   @relation("UserCreator")
+  accounts                  Account[]
+  sessions                  Session[]
+  memberships               OrganizationMember[]
+  workspaces                Workspace[]              @relation("WorkspaceCreator")
+  dataSources               DataSource[]             @relation("DataSourceCreator")
+  dashboards                Dashboard[]              @relation("DashboardCreator")
+  auditLogs                 AuditLog[]               @relation("AuditActor")
+  analysisJobs              AnalysisJob[]            @relation("AnalysisRequestedBy")
+  analysisReviews           AnalysisRecommendation[] @relation("AnalysisReviewedBy")
+  userRoles                 UserRole[]
+  dataSourceAccess          DataSourceAccess[]
+  dashboardAccess           DashboardAccess[]
+  aiAccessPolicies          AIAccessPolicy[]
+  aiCopilotLogs             AiCopilotLog[]
+  passwordResets            PasswordResetToken[]
+  loginHistory              LoginHistory[]
+  uploadedExcelVersions     ExcelFileVersion[]       @relation("ExcelVersionUploader")
+  createdBots               Bot[]                    @relation("BotCreator")
+  botAccess                 BotAccess[]
+  createdKnowledgeRacks     KnowledgeRack[]          @relation("KnowledgeRackCreator")
+  knowledgeRackAccess       KnowledgeRackAccess[]
+  uploadedDocuments         Document[]               @relation("DocumentCreator")
+  uploadedDocumentVersions  DocumentVersion[]        @relation("DocumentVersionUploader")
+  conversations             Conversation[]
+  chatFeedback              ChatMessageFeedback[]
+  externalIdentities        ExternalIdentity[]
+  externalSessions          ExternalSession[]
+  resourceAcl               ResourceAcl[]
+  requestedDatabaseQueries  DatabaseQuery[]          @relation("DatabaseQueryRequester")
+  approvedDatabaseQueries   DatabaseQuery[]          @relation("DatabaseQueryApprover")
+  createdLegacyApis         LegacyApi[]              @relation("LegacyApiCreator")
+  requestedApiInvocations   LegacyApiInvocation[]    @relation("LegacyApiInvocationRequester")
+  memories                  UserMemory[]             @relation("MemoryOwner")
+  memoryConsents            MemoryConsent[]          @relation("MemoryConsentOwner")
+  changedMemoryConsents     MemoryConsent[]          @relation("MemoryConsentActor")
+  requestedBusinessInsights BusinessInsightJob[]     @relation("BusinessInsightRequester")
+  createdAt                 DateTime                 @default(now())
+  updatedAt                 DateTime                 @updatedAt
 
   @@index([status, deletedAt])
   @@index([createdById])
@@ -258,86 +452,877 @@ model VerificationToken {
 }
 
 model Organization {
-  id               String               @id @default(cuid())
-  name             String
-  slug             String               @unique
-  members          OrganizationMember[]
-  workspaces       Workspace[]
-  auditLogs        AuditLog[]
-  analysisJobs     AnalysisJob[]
-  roles            Role[]
-  userRoles        UserRole[]
-  dataSourceAccess DataSourceAccess[]
-  dashboardAccess  DashboardAccess[]
-  aiAccessPolicies AIAccessPolicy[]
-  loginHistory     LoginHistory[]
-  aiCopilotLogs    AiCopilotLog[]
-  createdAt        DateTime             @default(now())
-  updatedAt        DateTime             @updatedAt
+  id                   String                 @id @default(cuid())
+  name                 String
+  slug                 String                 @unique
+  members              OrganizationMember[]
+  workspaces           Workspace[]
+  auditLogs            AuditLog[]
+  analysisJobs         AnalysisJob[]
+  roles                Role[]
+  userRoles            UserRole[]
+  dataSourceAccess     DataSourceAccess[]
+  dashboardAccess      DashboardAccess[]
+  aiAccessPolicies     AIAccessPolicy[]
+  loginHistory         LoginHistory[]
+  aiCopilotLogs        AiCopilotLog[]
+  organizationUnits    OrganizationUnit[]
+  projects             OrganizationProject[]
+  llmProviders         LlmProvider[]
+  piiMaskingPolicy     PiiMaskingPolicy?
+  retentionPolicy      SystemRetentionPolicy?
+  bots                 Bot[]
+  botAccess            BotAccess[]
+  knowledgeRacks       KnowledgeRack[]
+  knowledgeRackAccess  KnowledgeRackAccess[]
+  documents            Document[]
+  conversations        Conversation[]
+  authenticationPolicy AuthenticationPolicy?
+  externalIdentities   ExternalIdentity[]
+  externalSessions     ExternalSession[]
+  resourceAcl          ResourceAcl[]
+  databaseQueries      DatabaseQuery[]
+  legacyApis           LegacyApi[]
+  legacyApiInvocations LegacyApiInvocation[]
+  userMemories         UserMemory[]
+  memoryConsents       MemoryConsent[]
+  businessInsightJobs  BusinessInsightJob[]
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
 }
 
 model OrganizationMember {
-  id             String           @id @default(cuid())
-  organizationId String
-  userId         String
-  role           OrganizationRole @default(VIEWER)
-  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
+  id                 String            @id @default(cuid())
+  organizationId     String
+  userId             String
+  role               OrganizationRole  @default(VIEWER)
+  organizationUnitId String?
+  organization       Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user               User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organizationUnit   OrganizationUnit? @relation(fields: [organizationUnitId], references: [id], onDelete: SetNull)
+  projects           UserProject[]
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
 
   @@unique([organizationId, userId])
   @@index([userId])
+  @@index([organizationId, organizationUnitId])
+}
+
+model OrganizationUnit {
+  id             String               @id @default(cuid())
+  organizationId String
+  name           String
+  code           String
+  description    String?
+  active         Boolean              @default(true)
+  organization   Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  members        OrganizationMember[]
+  conversations  Conversation[]
+  insightJobs    BusinessInsightJob[]
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  @@unique([organizationId, code])
+  @@unique([organizationId, name])
+  @@index([organizationId, active])
+}
+
+model OrganizationProject {
+  id             String               @id @default(cuid())
+  organizationId String
+  name           String
+  code           String
+  description    String?
+  active         Boolean              @default(true)
+  organization   Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  members        UserProject[]
+  conversations  Conversation[]
+  insightJobs    BusinessInsightJob[]
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  @@unique([organizationId, code])
+  @@unique([organizationId, name])
+  @@index([organizationId, active])
+}
+
+model UserProject {
+  id                   String              @id @default(cuid())
+  organizationMemberId String
+  projectId            String
+  organizationMember   OrganizationMember  @relation(fields: [organizationMemberId], references: [id], onDelete: Cascade)
+  project              OrganizationProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdAt            DateTime            @default(now())
+
+  @@unique([organizationMemberId, projectId])
+  @@index([projectId])
+}
+
+model LlmProvider {
+  id                        String                 @id @default(cuid())
+  organizationId            String
+  name                      String
+  providerType              String                 @default("openai-compatible")
+  baseUrl                   String
+  chatModel                 String
+  embeddingModel            String
+  temperature               Float                  @default(0.1)
+  timeoutMs                 Int                    @default(30000)
+  maxTokens                 Int                    @default(4096)
+  active                    Boolean                @default(false)
+  supportsJsonSchema        Boolean                @default(true)
+  fallbackEnabled           Boolean                @default(false)
+  lastHealthStatus          String                 @default("UNKNOWN")
+  lastChatHealthStatus      String                 @default("UNKNOWN")
+  lastEmbeddingHealthStatus String                 @default("UNKNOWN")
+  lastHealthMessage         String?
+  lastChatLatencyMs         Int?
+  lastEmbeddingLatencyMs    Int?
+  lastTestedAt              DateTime?
+  organization              Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  credential                LlmProviderCredential?
+  botConfigurations         BotProviderConfig[]
+  createdAt                 DateTime               @default(now())
+  updatedAt                 DateTime               @updatedAt
+
+  @@unique([organizationId, name])
+  @@index([organizationId, active])
+}
+
+model LlmProviderCredential {
+  id         String      @id @default(cuid())
+  providerId String      @unique
+  ciphertext String
+  iv         String
+  authTag    String
+  keyVersion String
+  provider   LlmProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+}
+
+model PiiMaskingPolicy {
+  id                     String       @id @default(cuid())
+  organizationId         String       @unique
+  enabled                Boolean      @default(true)
+  maskEmail              Boolean      @default(true)
+  maskPhone              Boolean      @default(true)
+  maskNationalId         Boolean      @default(true)
+  maskFinancialAccount   Boolean      @default(true)
+  maskPassport           Boolean      @default(true)
+  maskHealth             Boolean      @default(true)
+  maskReligion           Boolean      @default(true)
+  maskBiometric          Boolean      @default(true)
+  allowSensitiveAiAccess Boolean      @default(false)
+  customPatterns         Json?
+  organization           Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdAt              DateTime     @default(now())
+  updatedAt              DateTime     @updatedAt
+}
+
+model SystemRetentionPolicy {
+  id                  String       @id @default(cuid())
+  organizationId      String       @unique
+  auditLogDays        Int          @default(365)
+  loginHistoryDays    Int          @default(180)
+  chatHistoryDays     Int          @default(90)
+  memoryRetentionDays Int          @default(365)
+  organization        Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+}
+
+model AuthenticationPolicy {
+  id                 String              @id @default(cuid())
+  organizationId     String              @unique
+  localEnabled       Boolean             @default(true)
+  externalApiEnabled Boolean             @default(false)
+  embeddedEnabled    Boolean             @default(false)
+  modePriority       Json                @default("[\"EMBEDDED\",\"EXTERNAL_API\",\"LOCAL\"]")
+  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  embeddedConfig     EmbeddedAuthConfig?
+  externalApiConfig  ExternalAuthConfig?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+}
+
+model EmbeddedAuthConfig {
+  id                  String                @id @default(cuid())
+  policyId            String                @unique
+  keyId               String                @unique
+  signatureMode       EmbeddedSignatureMode @default(BOTH)
+  allowedOrigins      String[]              @default([])
+  replayWindowSeconds Int                   @default(300)
+  sessionTtlSeconds   Int                   @default(28800)
+  active              Boolean               @default(true)
+  ciphertext          String
+  iv                  String
+  authTag             String
+  keyVersion          String
+  lastRotatedAt       DateTime              @default(now())
+  policy              AuthenticationPolicy  @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  nonces              EmbeddedAuthNonce[]
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+}
+
+model ExternalAuthConfig {
+  id                  String                  @id @default(cuid())
+  policyId            String                  @unique
+  url                 String
+  method              ExternalAuthMethod      @default(POST)
+  headers             Json?
+  requestMapping      Json
+  responseMapping     Json
+  timeoutMs           Int                     @default(10000)
+  active              Boolean                 @default(false)
+  lastHealthStatus    String?
+  lastHealthMessage   String?
+  lastHealthLatencyMs Int?
+  lastTestedAt        DateTime?
+  policy              AuthenticationPolicy    @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  credential          ExternalAuthCredential?
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+}
+
+model ExternalAuthCredential {
+  id         String             @id @default(cuid())
+  configId   String             @unique
+  headerName String
+  ciphertext String
+  iv         String
+  authTag    String
+  keyVersion String
+  config     ExternalAuthConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
+  createdAt  DateTime           @default(now())
+  updatedAt  DateTime           @updatedAt
+}
+
+model EmbeddedAuthNonce {
+  id         String             @id @default(cuid())
+  configId   String
+  nonceHash  String
+  expiresAt  DateTime
+  consumedAt DateTime           @default(now())
+  config     EmbeddedAuthConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
+  createdAt  DateTime           @default(now())
+
+  @@unique([configId, nonceHash])
+  @@index([expiresAt])
+}
+
+model ExternalIdentity {
+  id                    String             @id @default(cuid())
+  organizationId        String
+  userId                String
+  mode                  AuthenticationMode
+  externalUserId        String
+  externalUsername      String?
+  lastExternalSessionId String?
+  metadata              Json?
+  organization          Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user                  User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+
+  @@unique([organizationId, mode, externalUserId])
+  @@index([userId, organizationId])
+}
+
+model ExternalSession {
+  id                String             @id @default(cuid())
+  organizationId    String
+  botId             String
+  userId            String
+  conversationId    String?
+  authMode          AuthenticationMode
+  externalSessionId String
+  origin            String
+  tokenHash         String             @unique
+  expiresAt         DateTime
+  revokedAt         DateTime?
+  lastSeenAt        DateTime           @default(now())
+  organization      Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  bot               Bot                @relation(fields: [botId], references: [id], onDelete: Cascade)
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversation      Conversation?      @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  @@unique([organizationId, botId, externalSessionId])
+  @@index([organizationId, userId, botId])
+  @@index([expiresAt, revokedAt])
+}
+
+model Bot {
+  id                   String                @id @default(cuid())
+  organizationId       String
+  name                 String
+  description          String?
+  avatarUrl            String?
+  systemPrompt         String
+  welcomeMessage       String
+  suggestedQuestions   Json?
+  active               Boolean               @default(false)
+  currentVersion       Int                   @default(1)
+  createdById          String
+  organization         Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy            User                  @relation("BotCreator", fields: [createdById], references: [id])
+  versions             BotVersion[]
+  access               BotAccess[]
+  knowledgeRacks       BotKnowledgeRack[]
+  dataSources          BotDataSource[]
+  providerConfig       BotProviderConfig?
+  conversations        Conversation[]
+  externalSessions     ExternalSession[]
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  databaseQueries      DatabaseQuery[]
+  legacyApis           BotLegacyApi[]
+  legacyApiInvocations LegacyApiInvocation[]
+  memories             UserMemory[]
+  memoryConsents       MemoryConsent[]
+  businessInsightJobs  BusinessInsightJob[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId, active])
+}
+
+model BotVersion {
+  id            String   @id @default(cuid())
+  botId         String
+  version       Int
+  configuration Json
+  createdById   String
+  bot           Bot      @relation(fields: [botId], references: [id], onDelete: Cascade)
+  createdAt     DateTime @default(now())
+
+  @@unique([botId, version])
+  @@index([botId, createdAt])
+}
+
+model BotAccess {
+  id             String         @id @default(cuid())
+  organizationId String
+  botId          String
+  userId         String?
+  roleId         String?
+  level          BotAccessLevel @default(USE)
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  bot            Bot            @relation(fields: [botId], references: [id], onDelete: Cascade)
+  user           User?          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role           Role?          @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  createdAt      DateTime       @default(now())
+
+  @@unique([botId, userId])
+  @@unique([botId, roleId])
+  @@index([organizationId, userId])
+  @@index([organizationId, roleId])
+}
+
+model BotProviderConfig {
+  id              String       @id @default(cuid())
+  botId           String       @unique
+  providerId      String?
+  model           String?
+  temperature     Float        @default(0.1)
+  maxTokens       Int          @default(2048)
+  contextSize     Int          @default(12000)
+  citationEnabled Boolean      @default(true)
+  memoryMode      String       @default("CONVERSATION")
+  bot             Bot          @relation(fields: [botId], references: [id], onDelete: Cascade)
+  provider        LlmProvider? @relation(fields: [providerId], references: [id], onDelete: SetNull)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@index([providerId])
+}
+
+model BotKnowledgeRack {
+  botId     String
+  rackId    String
+  bot       Bot           @relation(fields: [botId], references: [id], onDelete: Cascade)
+  rack      KnowledgeRack @relation(fields: [rackId], references: [id], onDelete: Cascade)
+  createdAt DateTime      @default(now())
+
+  @@id([botId, rackId])
+  @@index([rackId])
+}
+
+model BotDataSource {
+  botId        String
+  dataSourceId String
+  bot          Bot        @relation(fields: [botId], references: [id], onDelete: Cascade)
+  dataSource   DataSource @relation(fields: [dataSourceId], references: [id], onDelete: Cascade)
+  createdAt    DateTime   @default(now())
+
+  @@id([botId, dataSourceId])
+  @@index([dataSourceId])
+}
+
+model BotLegacyApi {
+  botId       String
+  legacyApiId String
+  bot         Bot       @relation(fields: [botId], references: [id], onDelete: Cascade)
+  legacyApi   LegacyApi @relation(fields: [legacyApiId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+
+  @@id([botId, legacyApiId])
+  @@index([legacyApiId])
+}
+
+model KnowledgeRack {
+  id             String                @id @default(cuid())
+  organizationId String
+  name           String
+  description    String?
+  active         Boolean               @default(true)
+  createdById    String
+  organization   Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy      User                  @relation("KnowledgeRackCreator", fields: [createdById], references: [id])
+  sources        KnowledgeSource[]
+  access         KnowledgeRackAccess[]
+  bots           BotKnowledgeRack[]
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+
+  @@unique([organizationId, name])
+  @@index([organizationId, active])
+}
+
+model KnowledgeRackAccess {
+  id             String               @id @default(cuid())
+  organizationId String
+  rackId         String
+  userId         String?
+  roleId         String?
+  level          KnowledgeAccessLevel @default(READ)
+  organization   Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  rack           KnowledgeRack        @relation(fields: [rackId], references: [id], onDelete: Cascade)
+  user           User?                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role           Role?                @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  createdAt      DateTime             @default(now())
+
+  @@unique([rackId, userId])
+  @@unique([rackId, roleId])
+  @@index([organizationId, userId])
+  @@index([organizationId, roleId])
+}
+
+model KnowledgeSource {
+  id                 String                    @id @default(cuid())
+  rackId             String
+  name               String
+  type               KnowledgeSourceType       @default(FILE)
+  active             Boolean                   @default(true)
+  lastRefreshAt      DateTime?
+  lastRefreshStatus  SourceRefreshStatus?
+  lastRefreshMessage String?
+  rack               KnowledgeRack             @relation(fields: [rackId], references: [id], onDelete: Cascade)
+  documents          Document[]
+  sharedFolderConfig SharedFolderSourceConfig?
+  webConfig          WebSourceConfig?
+  refreshRuns        SourceRefreshRun[]
+  snapshots          SourceSnapshot[]
+  createdAt          DateTime                  @default(now())
+  updatedAt          DateTime                  @updatedAt
+
+  @@unique([rackId, name])
+  @@index([rackId, active])
+}
+
+model Document {
+  id               String            @id @default(cuid())
+  organizationId   String
+  sourceId         String
+  name             String
+  mimeType         String
+  checksum         String
+  sourceLocator    String?
+  sourceMetadata   Json?
+  sourceDeletedAt  DateTime?
+  active           Boolean           @default(true)
+  currentVersionId String?           @unique
+  createdById      String
+  organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  source           KnowledgeSource   @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  createdBy        User              @relation("DocumentCreator", fields: [createdById], references: [id])
+  currentVersion   DocumentVersion?  @relation("CurrentDocumentVersion", fields: [currentVersionId], references: [id], onDelete: SetNull)
+  versions         DocumentVersion[] @relation("DocumentVersions")
+  sourceSnapshots  SourceSnapshot[]
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  @@unique([sourceId, name])
+  @@unique([sourceId, sourceLocator])
+  @@index([sourceId, checksum])
+  @@index([organizationId, active])
+  @@index([sourceId, active])
+}
+
+model DocumentVersion {
+  id            String                @id @default(cuid())
+  documentId    String
+  version       Int
+  storageKey    String
+  size          Int
+  checksum      String
+  mimeType      String
+  parserVersion String                @default("insightkm-parser-v1")
+  status        DocumentVersionStatus @default(UPLOADED)
+  errorMessage  String?
+  uploadedById  String
+  document      Document              @relation("DocumentVersions", fields: [documentId], references: [id], onDelete: Cascade)
+  currentFor    Document?             @relation("CurrentDocumentVersion")
+  uploadedBy    User                  @relation("DocumentVersionUploader", fields: [uploadedById], references: [id])
+  chunks        DocumentChunk[]
+  indexJobs     DocumentIndexJob[]
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+
+  @@unique([documentId, version])
+  @@unique([documentId, checksum])
+  @@index([status, createdAt])
+}
+
+model DocumentChunk {
+  id                 String                 @id @default(cuid())
+  documentVersionId  String
+  ordinal            Int
+  content            String
+  contentHash        String
+  tokenCount         Int
+  metadata           Json?
+  embedding          Unsupported("vector")?
+  embeddingModel     String?
+  embeddingDimension Int?
+  documentVersion    DocumentVersion        @relation(fields: [documentVersionId], references: [id], onDelete: Cascade)
+  citations          MessageCitation[]
+  createdAt          DateTime               @default(now())
+
+  @@unique([documentVersionId, ordinal])
+  @@unique([documentVersionId, contentHash])
+  @@index([documentVersionId])
+}
+
+model DocumentIndexJob {
+  id                 String                @id @default(cuid())
+  documentVersionId  String
+  sourceRefreshRunId String?
+  status             IndexJobStatus        @default(QUEUED)
+  attempt            Int                   @default(0)
+  maxAttempts        Int                   @default(3)
+  progressPercent    Int                   @default(0)
+  processedChunks    Int                   @default(0)
+  totalChunks        Int?
+  embeddingModel     String
+  parserVersion      String                @default("insightkm-parser-v1")
+  chunkingVersion    String                @default("insightkm-chunker-v1")
+  failureCategory    IndexFailureCategory?
+  errorMessage       String?
+  startedAt          DateTime?
+  lastHeartbeatAt    DateTime?
+  completedAt        DateTime?
+  cancelledAt        DateTime?
+  deadLetteredAt     DateTime?
+  documentVersion    DocumentVersion       @relation(fields: [documentVersionId], references: [id], onDelete: Cascade)
+  sourceRefreshRun   SourceRefreshRun?     @relation(fields: [sourceRefreshRunId], references: [id], onDelete: SetNull)
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+
+  @@unique([documentVersionId, embeddingModel, parserVersion, chunkingVersion])
+  @@index([status, createdAt])
+  @@index([sourceRefreshRunId, status])
+}
+
+model SharedFolderSourceConfig {
+  id                    String          @id @default(cuid())
+  sourceId              String          @unique
+  rootPath              String
+  includeSubdirectories Boolean         @default(true)
+  scheduleEnabled       Boolean         @default(false)
+  intervalMinutes       Int             @default(60)
+  maxFiles              Int             @default(10000)
+  source                KnowledgeSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+}
+
+model WebSourceConfig {
+  id              String          @id @default(cuid())
+  sourceId        String          @unique
+  url             String
+  allowedDomains  String[]        @default([])
+  timeoutMs       Int             @default(15000)
+  maxBytes        Int             @default(5242880)
+  maxRedirects    Int             @default(3)
+  scheduleEnabled Boolean         @default(false)
+  intervalMinutes Int             @default(360)
+  source          KnowledgeSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+}
+
+model SourceRefreshRun {
+  id             String               @id @default(cuid())
+  sourceId       String
+  trigger        SourceRefreshTrigger @default(MANUAL)
+  status         SourceRefreshStatus  @default(QUEUED)
+  requestedById  String?
+  queueJobId     String?
+  newCount       Int                  @default(0)
+  changedCount   Int                  @default(0)
+  deletedCount   Int                  @default(0)
+  unchangedCount Int                  @default(0)
+  successCount   Int                  @default(0)
+  errorCount     Int                  @default(0)
+  errorDetails   Json?
+  startedAt      DateTime?
+  completedAt    DateTime?
+  source         KnowledgeSource      @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  indexJobs      DocumentIndexJob[]
+  snapshots      SourceSnapshot[]     @relation("SnapshotLastSeenRun")
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  @@index([sourceId, createdAt])
+  @@index([status, createdAt])
+}
+
+model SourceSnapshot {
+  id            String               @id @default(cuid())
+  sourceId      String
+  locator       String
+  status        SourceSnapshotStatus @default(ACTIVE)
+  size          Int?
+  modifiedAt    DateTime?
+  checksum      String?
+  etag          String?
+  lastModified  String?
+  fetchedAt     DateTime?
+  httpStatus    Int?
+  canonicalUrl  String?
+  metadata      Json?
+  documentId    String?
+  lastSeenRunId String?
+  source        KnowledgeSource      @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  document      Document?            @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  lastSeenRun   SourceRefreshRun?    @relation("SnapshotLastSeenRun", fields: [lastSeenRunId], references: [id], onDelete: SetNull)
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+
+  @@unique([sourceId, locator])
+  @@index([sourceId, status])
+  @@index([documentId])
+}
+
+model Conversation {
+  id                 String                @id @default(cuid())
+  organizationId     String
+  botId              String
+  userId             String
+  organizationUnitId String?
+  projectId          String?
+  authMode           AuthenticationMode    @default(LOCAL)
+  departmentName     String?
+  projectName        String?
+  title              String
+  lastMessageAt      DateTime              @default(now())
+  deletedAt          DateTime?
+  organization       Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  bot                Bot                   @relation(fields: [botId], references: [id], onDelete: Cascade)
+  user               User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organizationUnit   OrganizationUnit?     @relation(fields: [organizationUnitId], references: [id], onDelete: SetNull)
+  project            OrganizationProject?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  messages           ChatMessage[]
+  summaries          ConversationSummary[]
+  externalSessions   ExternalSession[]
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+
+  @@index([organizationId, userId, lastMessageAt])
+  @@index([botId, userId, deletedAt])
+  @@index([organizationId, organizationUnitId, projectId, createdAt])
+  @@index([title(ops: raw("gin_trgm_ops"))], type: Gin, map: "Conversation_title_trgm_idx")
+}
+
+model ConversationSummary {
+  id             String       @id @default(cuid())
+  conversationId String
+  version        Int
+  summary        String
+  messageIds     String[]
+  provider       String
+  model          String
+  promptVersion  String
+  inputTokens    Int?
+  outputTokens   Int?
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+
+  @@unique([conversationId, version])
+  @@index([conversationId, createdAt])
+}
+
+model ChatMessage {
+  id             String               @id @default(cuid())
+  conversationId String
+  role           ChatMessageRole
+  content        String
+  inputTokens    Int?
+  outputTokens   Int?
+  latencyMs      Int?
+  errorCode      String?
+  requestId      String?
+  conversation   Conversation         @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  citations      MessageCitation[]
+  feedback       ChatMessageFeedback?
+  createdAt      DateTime             @default(now())
+
+  @@index([conversationId, createdAt])
+  @@index([role, createdAt])
+  @@index([content(ops: raw("gin_trgm_ops"))], type: Gin, map: "ChatMessage_content_trgm_idx")
+}
+
+model MessageCitation {
+  id                    String               @id @default(cuid())
+  messageId             String
+  chunkId               String?
+  databaseQueryId       String?
+  legacyApiInvocationId String?
+  rank                  Int
+  score                 Float
+  quote                 String
+  metadata              Json?
+  message               ChatMessage          @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  chunk                 DocumentChunk?       @relation(fields: [chunkId], references: [id], onDelete: Cascade)
+  databaseQuery         DatabaseQuery?       @relation(fields: [databaseQueryId], references: [id], onDelete: Cascade)
+  legacyApiInvocation   LegacyApiInvocation? @relation(fields: [legacyApiInvocationId], references: [id], onDelete: Cascade)
+  createdAt             DateTime             @default(now())
+
+  @@unique([messageId, chunkId])
+  @@unique([messageId, databaseQueryId])
+  @@unique([messageId, legacyApiInvocationId])
+  @@index([chunkId])
+  @@index([databaseQueryId])
+  @@index([legacyApiInvocationId])
+}
+
+model ChatMessageFeedback {
+  id        String      @id @default(cuid())
+  messageId String      @unique
+  userId    String
+  rating    Int
+  reason    String?
+  comment   String?
+  message   ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  @@index([userId, createdAt])
+}
+
+model UserMemory {
+  id               String             @id @default(cuid())
+  organizationId   String
+  userId           String
+  botId            String?
+  category         UserMemoryCategory
+  key              String
+  value            String
+  sourceMessageIds String[]
+  expiresAt        DateTime
+  organization     Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user             User               @relation("MemoryOwner", fields: [userId], references: [id], onDelete: Cascade)
+  bot              Bot?               @relation(fields: [botId], references: [id], onDelete: Cascade)
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  @@index([organizationId, userId, expiresAt])
+  @@index([botId, userId, category])
+}
+
+model MemoryConsent {
+  id             String               @id @default(cuid())
+  organizationId String
+  userId         String
+  botId          String?
+  status         MemoryConsentStatus
+  categories     UserMemoryCategory[]
+  policyVersion  String               @default("memory-consent-v1")
+  reason         String?
+  changedById    String
+  organization   Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User                 @relation("MemoryConsentOwner", fields: [userId], references: [id], onDelete: Cascade)
+  changedBy      User                 @relation("MemoryConsentActor", fields: [changedById], references: [id], onDelete: Restrict)
+  bot            Bot?                 @relation(fields: [botId], references: [id], onDelete: Cascade)
+  createdAt      DateTime             @default(now())
+
+  @@index([organizationId, userId, botId, createdAt])
 }
 
 model Workspace {
-  id              String            @id @default(cuid())
-  organizationId  String
-  name            String
-  slug            String
-  createdById     String
-  organization    Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  createdBy       User              @relation("WorkspaceCreator", fields: [createdById], references: [id])
-  dataSources     DataSource[]
-  dashboards      Dashboard[]
-  auditLogs       AuditLog[]
-  analysisJobs    AnalysisJob[]
-  aiResponseCache AiResponseCache[]
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
+  id                   String                @id @default(cuid())
+  organizationId       String
+  name                 String
+  slug                 String
+  createdById          String
+  organization         Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy            User                  @relation("WorkspaceCreator", fields: [createdById], references: [id])
+  dataSources          DataSource[]
+  dashboards           Dashboard[]
+  auditLogs            AuditLog[]
+  analysisJobs         AnalysisJob[]
+  aiResponseCache      AiResponseCache[]
+  databaseQueries      DatabaseQuery[]
+  legacyApis           LegacyApi[]
+  legacyApiInvocations LegacyApiInvocation[]
+  businessInsightJobs  BusinessInsightJob[]
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
 
   @@unique([organizationId, slug])
   @@index([organizationId])
 }
 
 model DataSource {
-  id                String                @id @default(cuid())
-  workspaceId       String
-  name              String
-  type              DataSourceType
-  status            DataSourceStatus      @default(DRAFT)
-  host              String?
-  port              Int?
-  databaseName      String?
-  username          String?
-  sslEnabled        Boolean               @default(false)
-  connectionOptions Json?
-  lastTestedAt      DateTime?
-  lastConnectedAt   DateTime?
-  lastDiscoveredAt  DateTime?
-  createdById       String
-  workspace         Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  createdBy         User                  @relation("DataSourceCreator", fields: [createdById], references: [id])
-  credential        DataSourceCredential?
-  file              DataSourceFile?
-  schemas           DataSourceSchema[]
-  dashboards        DashboardDataSource[]
-  analysisJobs      AnalysisJob[]
-  access            DataSourceAccess[]
-  excelVersions     ExcelFileVersion[]
-  aiCopilotLogs     AiCopilotLog[]
-  createdAt         DateTime              @default(now())
-  updatedAt         DateTime              @updatedAt
+  id                  String                @id @default(cuid())
+  workspaceId         String
+  name                String
+  type                DataSourceType
+  status              DataSourceStatus      @default(DRAFT)
+  host                String?
+  port                Int?
+  databaseName        String?
+  username            String?
+  sslEnabled          Boolean               @default(false)
+  connectionOptions   Json?
+  lastTestedAt        DateTime?
+  lastConnectedAt     DateTime?
+  lastDiscoveredAt    DateTime?
+  sampleDataEnabled   Boolean               @default(false)
+  metadataVersion     Int                   @default(0)
+  metadataFingerprint String?
+  lastMetadataDiff    Json?
+  createdById         String
+  workspace           Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy           User                  @relation("DataSourceCreator", fields: [createdById], references: [id])
+  credential          DataSourceCredential?
+  file                DataSourceFile?
+  schemas             DataSourceSchema[]
+  dashboards          DashboardDataSource[]
+  analysisJobs        AnalysisJob[]
+  access              DataSourceAccess[]
+  excelVersions       ExcelFileVersion[]
+  aiCopilotLogs       AiCopilotLog[]
+  bots                BotDataSource[]
+  metadataRefreshes   MetadataRefreshRun[]
+  databaseQueries     DatabaseQuery[]
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
 
   @@index([workspaceId, status])
 }
@@ -368,52 +1353,288 @@ model DataSourceFile {
 }
 
 model DataSourceSchema {
-  id           String            @id @default(cuid())
-  dataSourceId String
-  name         String
-  selected     Boolean           @default(false)
-  dataSource   DataSource        @relation(fields: [dataSourceId], references: [id], onDelete: Cascade)
-  tables       DataSourceTable[]
-  createdAt    DateTime          @default(now())
-  updatedAt    DateTime          @updatedAt
+  id                  String            @id @default(cuid())
+  dataSourceId        String
+  name                String
+  selected            Boolean           @default(false)
+  databaseComment     String?
+  metadataFingerprint String?
+  lastSeenVersion     Int               @default(0)
+  dataSource          DataSource        @relation(fields: [dataSourceId], references: [id], onDelete: Cascade)
+  tables              DataSourceTable[]
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
 
   @@unique([dataSourceId, name])
   @@index([dataSourceId])
 }
 
 model DataSourceTable {
-  id                String                   @id @default(cuid())
-  schemaId          String
-  name              String
-  tableType         String
-  estimatedRowCount BigInt?
-  selected          Boolean                  @default(false)
-  schema            DataSourceSchema         @relation(fields: [schemaId], references: [id], onDelete: Cascade)
-  columns           DataSourceColumn[]
-  outgoingRelations DataSourceRelationship[] @relation("RelationshipFrom")
-  incomingRelations DataSourceRelationship[] @relation("RelationshipTo")
-  createdAt         DateTime                 @default(now())
-  updatedAt         DateTime                 @updatedAt
+  id                         String                   @id @default(cuid())
+  schemaId                   String
+  name                       String
+  tableType                  String
+  estimatedRowCount          BigInt?
+  selected                   Boolean                  @default(false)
+  sampleDataEnabled          Boolean                  @default(false)
+  databaseComment            String?
+  semanticDescription        String?
+  semanticModel              String?
+  semanticVersion            Int                      @default(0)
+  semanticFingerprint        String?
+  semanticEmbedding          Unsupported("vector")?
+  semanticEmbeddingModel     String?
+  semanticEmbeddingDimension Int?
+  metadataFingerprint        String?
+  lastSeenVersion            Int                      @default(0)
+  schema                     DataSourceSchema         @relation(fields: [schemaId], references: [id], onDelete: Cascade)
+  columns                    DataSourceColumn[]
+  outgoingRelations          DataSourceRelationship[] @relation("RelationshipFrom")
+  incomingRelations          DataSourceRelationship[] @relation("RelationshipTo")
+  createdAt                  DateTime                 @default(now())
+  updatedAt                  DateTime                 @updatedAt
 
   @@unique([schemaId, name])
   @@index([schemaId])
 }
 
 model DataSourceColumn {
-  id           String          @id @default(cuid())
-  tableId      String
-  name         String
-  dataType     String
-  ordinal      Int
-  nullable     Boolean
-  primaryKey   Boolean         @default(false)
-  defaultValue String?
-  table        DataSourceTable @relation(fields: [tableId], references: [id], onDelete: Cascade)
-  createdAt    DateTime        @default(now())
-  updatedAt    DateTime        @updatedAt
+  id                  String          @id @default(cuid())
+  tableId             String
+  name                String
+  dataType            String
+  ordinal             Int
+  nullable            Boolean
+  primaryKey          Boolean         @default(false)
+  defaultValue        String?
+  databaseComment     String?
+  semanticDescription String?
+  semanticModel       String?
+  semanticVersion     Int             @default(0)
+  semanticFingerprint String?
+  metadataFingerprint String?
+  lastSeenVersion     Int             @default(0)
+  table               DataSourceTable @relation(fields: [tableId], references: [id], onDelete: Cascade)
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
 
   @@unique([tableId, name])
   @@index([tableId])
+}
+
+model MetadataRefreshRun {
+  id             String                @id @default(cuid())
+  dataSourceId   String
+  version        Int
+  status         MetadataRefreshStatus @default(PROCESSING)
+  addedSchemas   Int                   @default(0)
+  changedSchemas Int                   @default(0)
+  removedSchemas Int                   @default(0)
+  addedTables    Int                   @default(0)
+  changedTables  Int                   @default(0)
+  removedTables  Int                   @default(0)
+  addedColumns   Int                   @default(0)
+  changedColumns Int                   @default(0)
+  removedColumns Int                   @default(0)
+  errorDetails   Json?
+  startedAt      DateTime              @default(now())
+  completedAt    DateTime?
+  dataSource     DataSource            @relation(fields: [dataSourceId], references: [id], onDelete: Cascade)
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+
+  @@unique([dataSourceId, version])
+  @@index([dataSourceId, createdAt])
+  @@index([status, createdAt])
+}
+
+model LegacyApi {
+  id                   String                @id @default(cuid())
+  organizationId       String
+  workspaceId          String
+  name                 String
+  description          String
+  baseUrl              String
+  endpointPath         String
+  method               LegacyApiHttpMethod   @default(GET)
+  readOnlyConfirmed    Boolean               @default(false)
+  enabled              Boolean               @default(true)
+  allowedDomains       String[]
+  timeoutMs            Int                   @default(10000)
+  maxResponseBytes     Int                   @default(1048576)
+  maxRedirects         Int                   @default(2)
+  requestHeaders       Json?
+  parameterDefinitions Json
+  bodyTemplate         Json?
+  responseSchema       Json
+  responseMapping      Json?
+  authType             LegacyApiAuthType     @default(NONE)
+  lastTestStatus       String?
+  lastTestMessage      String?
+  lastTestLatencyMs    Int?
+  lastTestedAt         DateTime?
+  createdById          String
+  organization         Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workspace            Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy            User                  @relation("LegacyApiCreator", fields: [createdById], references: [id])
+  credential           LegacyApiCredential?
+  bots                 BotLegacyApi[]
+  invocations          LegacyApiInvocation[]
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+
+  @@unique([workspaceId, name])
+  @@index([organizationId, enabled])
+}
+
+model LegacyApiCredential {
+  id          String    @id @default(cuid())
+  legacyApiId String    @unique
+  ciphertext  String
+  iv          String
+  authTag     String
+  keyVersion  String
+  legacyApi   LegacyApi @relation(fields: [legacyApiId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model LegacyApiInvocation {
+  id                 String                    @id @default(cuid())
+  organizationId     String
+  workspaceId        String
+  legacyApiId        String
+  botId              String?
+  requestedById      String
+  question           String
+  status             LegacyApiInvocationStatus
+  clarification      String?
+  parameterNames     String[]
+  requestFingerprint String?
+  resultPreview      Json?
+  summary            String?
+  citationMetadata   Json?
+  httpStatus         Int?
+  durationMs         Int?
+  errorCode          String?
+  errorMessage       String?
+  startedAt          DateTime?
+  completedAt        DateTime?
+  organization       Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workspace          Workspace                 @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  legacyApi          LegacyApi                 @relation(fields: [legacyApiId], references: [id], onDelete: Cascade)
+  bot                Bot?                      @relation(fields: [botId], references: [id], onDelete: SetNull)
+  requestedBy        User                      @relation("LegacyApiInvocationRequester", fields: [requestedById], references: [id])
+  citations          MessageCitation[]
+  createdAt          DateTime                  @default(now())
+  updatedAt          DateTime                  @updatedAt
+
+  @@index([workspaceId, requestedById, createdAt])
+  @@index([legacyApiId, status, createdAt])
+  @@index([botId, createdAt])
+}
+
+model BusinessInsightJob {
+  id                 String                    @id @default(cuid())
+  organizationId     String
+  workspaceId        String
+  requestedById      String
+  botId              String?
+  organizationUnitId String?
+  projectId          String?
+  userFilterId       String?
+  dateFrom           DateTime
+  dateTo             DateTime
+  status             BusinessInsightJobStatus  @default(PROCESSING)
+  conversationCount  Int                       @default(0)
+  messageCount       Int                       @default(0)
+  limitation         String?
+  scopeMetadata      Json
+  errorCode          String?
+  startedAt          DateTime                  @default(now())
+  completedAt        DateTime?
+  organization       Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workspace          Workspace                 @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  requestedBy        User                      @relation("BusinessInsightRequester", fields: [requestedById], references: [id], onDelete: Restrict)
+  bot                Bot?                      @relation(fields: [botId], references: [id], onDelete: SetNull)
+  organizationUnit   OrganizationUnit?         @relation(fields: [organizationUnitId], references: [id], onDelete: SetNull)
+  project            OrganizationProject?      @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  snapshots          BusinessInsightSnapshot[]
+  createdAt          DateTime                  @default(now())
+  updatedAt          DateTime                  @updatedAt
+
+  @@index([workspaceId, requestedById, createdAt])
+  @@index([organizationId, organizationUnitId, projectId, dateFrom, dateTo])
+  @@index([botId, createdAt])
+}
+
+model BusinessInsightSnapshot {
+  id                String             @id @default(cuid())
+  jobId             String
+  version           Int
+  algorithmVersion  String
+  filters           Json
+  metrics           Json
+  trends            Json
+  topics            Json
+  knowledgeGaps     Json
+  findings          Json
+  evidenceAggregate Json
+  limitations       String[]
+  conversationCount Int
+  messageCount      Int
+  job               BusinessInsightJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  createdAt         DateTime           @default(now())
+
+  @@unique([jobId, version])
+  @@index([jobId, createdAt])
+}
+
+model DatabaseQuery {
+  id               String              @id @default(cuid())
+  organizationId   String
+  workspaceId      String
+  dataSourceId     String
+  botId            String?
+  requestedById    String
+  question         String
+  intent           DatabaseQueryIntent @default(DATABASE)
+  status           DatabaseQueryStatus
+  clarification    String?
+  proposedSql      String?
+  validatedSql     String?
+  sqlHash          String?
+  metadataVersion  Int
+  selectedMetadata Json
+  referencedTables Json?
+  resultSchema     Json?
+  previewRows      Json?
+  rowCount         Int?
+  durationMs       Int?
+  summary          String?
+  citationMetadata Json?
+  provider         String?
+  model            String?
+  errorCode        String?
+  errorMessage     String?
+  approvedById     String?
+  approvedAt       DateTime?
+  startedAt        DateTime?
+  completedAt      DateTime?
+  dataSource       DataSource          @relation(fields: [dataSourceId], references: [id], onDelete: Cascade)
+  bot              Bot?                @relation(fields: [botId], references: [id], onDelete: SetNull)
+  organization     Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workspace        Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  requestedBy      User                @relation("DatabaseQueryRequester", fields: [requestedById], references: [id])
+  approvedBy       User?               @relation("DatabaseQueryApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+  citations        MessageCitation[]
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  @@index([workspaceId, requestedById, createdAt])
+  @@index([dataSourceId, status, createdAt])
+  @@index([botId, createdAt])
+  @@index([sqlHash])
 }
 
 model DataSourceRelationship {
@@ -680,21 +1901,46 @@ model AuditLog {
 }
 
 model Role {
-  id             String           @id @default(cuid())
-  organizationId String
-  name           String
-  description    String?
-  systemKey      String?
-  isSystem       Boolean          @default(false)
-  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  users          UserRole[]
-  permissions    RolePermission[]
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
+  id                  String                @id @default(cuid())
+  organizationId      String
+  name                String
+  description         String?
+  systemKey           String?
+  isSystem            Boolean               @default(false)
+  organization        Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  users               UserRole[]
+  permissions         RolePermission[]
+  botAccess           BotAccess[]
+  knowledgeRackAccess KnowledgeRackAccess[]
+  resourceAcl         ResourceAcl[]
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
 
   @@unique([organizationId, name])
   @@unique([organizationId, systemKey])
   @@index([organizationId])
+}
+
+model ResourceAcl {
+  id             String               @id @default(cuid())
+  organizationId String
+  resourceType   ResourceType
+  resourceId     String
+  userId         String?
+  roleId         String?
+  effect         ResourceAccessEffect @default(ALLOW)
+  accessLevel    ResourceAccessLevel  @default(VIEW)
+  organization   Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User?                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role           Role?                @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  @@unique([organizationId, resourceType, resourceId, userId])
+  @@unique([organizationId, resourceType, resourceId, roleId])
+  @@index([organizationId, resourceType, resourceId, effect])
+  @@index([userId, organizationId])
+  @@index([roleId, organizationId])
 }
 
 model Permission {
@@ -796,22 +2042,25 @@ model PasswordResetToken {
 }
 
 model LoginHistory {
-  id              String           @id @default(cuid())
-  organizationId  String?
-  userId          String?
-  identifier      String
-  status          LoginEventStatus
-  failureReason   String?
-  ipAddress       String?
-  browser         String?
-  operatingSystem String?
-  device          String?
-  userAgent       String?
-  sessionId       String?
-  logoutAt        DateTime?
-  organization    Organization?    @relation(fields: [organizationId], references: [id], onDelete: SetNull)
-  user            User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
-  createdAt       DateTime         @default(now())
+  id                String             @id @default(cuid())
+  organizationId    String?
+  userId            String?
+  identifier        String
+  status            LoginEventStatus
+  failureReason     String?
+  ipAddress         String?
+  browser           String?
+  operatingSystem   String?
+  device            String?
+  userAgent         String?
+  sessionId         String?
+  authMode          AuthenticationMode @default(LOCAL)
+  externalSessionId String?
+  origin            String?
+  logoutAt          DateTime?
+  organization      Organization?      @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  user              User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
+  createdAt         DateTime           @default(now())
 
   @@index([organizationId, createdAt])
   @@index([userId, createdAt])

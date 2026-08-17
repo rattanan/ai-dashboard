@@ -11,6 +11,7 @@ import { failure, success, type AppResult } from "@/types/result";
 import { buildMetadataContextForDashboard } from "./metadata-context";
 import { logger } from "./logger";
 import { canStartDashboardAnalysis } from "./dashboard-analysis-state";
+import { getEffectiveAiPrivacyPolicy } from "./privacy-policy";
 
 const STAGE_ORDER: AnalysisStage[] = [
   "PREPARING_METADATA",
@@ -187,6 +188,9 @@ export async function createAnalysisJob(
       "Select at least one discovered table before analysis.",
     );
   const configuration = env();
+  const privacyPolicy = await getEffectiveAiPrivacyPolicy(
+    context.organizationId,
+  );
   const requestId = crypto.randomUUID();
   const requestSnapshot = {
     version: 1,
@@ -212,8 +216,8 @@ export async function createAnalysisJob(
     aiPolicy: {
       provider: configuration.AI_PROVIDER,
       model: configuration.AI_MODEL ?? null,
-      sendSampleData: configuration.AI_SEND_SAMPLE_DATA,
-      maskSensitiveData: configuration.AI_MASK_SENSITIVE_DATA,
+      sendSampleData: privacyPolicy.sendSampleData,
+      maskSensitiveData: privacyPolicy.maskSensitiveData,
       limits: {
         tables: configuration.AI_MAX_TABLES,
         columnsPerTable: configuration.AI_MAX_COLUMNS_PER_TABLE,

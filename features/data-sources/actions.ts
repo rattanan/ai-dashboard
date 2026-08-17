@@ -8,6 +8,11 @@ import {
   dashboardObjectiveSchema,
   deleteDataSourceSchema,
 } from "@/schemas/data-source";
+import {
+  databaseQuestionInputSchema,
+  databaseQueryIdSchema,
+  databaseScopeSchema,
+} from "@/schemas/database-intelligence";
 import { requireAuthorization } from "@/server/auth/authorization";
 import {
   hasPermission,
@@ -25,6 +30,12 @@ import { logger } from "@/server/services/logger";
 import { createAnalysisJob } from "@/server/services/analysis-job-service";
 import { failure, success } from "@/types/result";
 import type { AppResult } from "@/types/result";
+import {
+  enrichDatabaseMetadata,
+  cancelDatabaseQuery,
+  executeDatabaseQuery,
+  proposeDatabaseQuery,
+} from "@/server/services/database-intelligence-service";
 
 export async function createDatabaseDataSourceAction(input: unknown) {
   const context = await requireAuthorization();
@@ -81,30 +92,183 @@ export async function saveDataScopeAction(
     !Array.isArray(source.connectionOptions)
       ? source.connectionOptions
       : {};
-  await db.$transaction([
-    db.dataSourceTable.updateMany({
+  await db.$transaction(async (tx) => {
+    await tx.dataSourceTable.updateMany({
       where: { schema: { dataSourceId } },
-      data: { selected: false },
-    }),
-    db.dataSourceTable.updateMany({
+      data: { selected: false, sampleDataEnabled: false },
+    });
+    await tx.dataSourceTable.updateMany({
       where: { id: { in: tableIds }, schema: { dataSourceId } },
       data: { selected: true },
-    }),
-    ...(source.type === "ORACLE"
-      ? [
-          db.dataSource.update({
-            where: { id: source.id },
-            data: {
-              connectionOptions: {
-                ...connectionOptions,
-                autoPrioritizeTables,
-              } as Prisma.InputJsonValue,
-            },
-          }),
-        ]
-      : []),
-  ]);
+    });
+    await tx.dataSourceSchema.updateMany({
+      where: { dataSourceId },
+      data: { selected: false },
+    });
+    await tx.dataSourceSchema.updateMany({
+      where: { dataSourceId, tables: { some: { id: { in: tableIds } } } },
+      data: { selected: true },
+    });
+    if (source.type === "ORACLE")
+      await tx.dataSource.update({
+        where: { id: source.id },
+        data: {
+          connectionOptions: {
+            ...connectionOptions,
+            autoPrioritizeTables,
+          } as Prisma.InputJsonValue,
+        },
+      });
+  });
   return success({ selected: tableIds.length });
+}
+
+export async function saveDatabaseScopeAction(
+  _state: unknown,
+  formData: FormData,
+) {
+  const context = await requireAuthorization();
+  await requirePermission(context, "datasource.update");
+  const parsed = databaseScopeSchema.safeParse({
+    dataSourceId: formData.get("dataSourceId"),
+    sampleDataEnabled: formData.get("sampleDataEnabled"),
+    selectedTableIds: formData.getAll("selectedTableIds"),
+    sampleTableIds: formData.getAll("sampleTableIds"),
+  });
+  if (!parsed.success)
+    return failure("VALIDATION_ERROR", "Check the database scope settings.", {
+      fieldErrors: parsed.error.flatten().fieldErrors,
+    });
+  await requireDataSourceAccess(context, parsed.data.dataSourceId, "manage");
+  const selectedIds = [...new Set(parsed.data.selectedTableIds)];
+  const sampleIds = [...new Set(parsed.data.sampleTableIds)];
+  if (sampleIds.some((id) => !selectedIds.includes(id)))
+    return failure(
+      "VALIDATION_ERROR",
+      "Sample access can only be enabled for selected tables.",
+    );
+  const source = await db.dataSource.findFirst({
+    where: {
+      id: parsed.data.dataSourceId,
+      workspaceId: context.workspaceId,
+      type: { in: ["MYSQL", "POSTGRESQL", "MSSQL", "ORACLE"] },
+    },
+    select: { id: true },
+  });
+  if (!source) return failure("NOT_FOUND", "Database source not found.");
+  const validCount = await db.dataSourceTable.count({
+    where: { id: { in: selectedIds }, schema: { dataSourceId: source.id } },
+  });
+  if (validCount !== selectedIds.length)
+    return failure(
+      "VALIDATION_ERROR",
+      "Database scope contains an invalid table.",
+    );
+  await db.$transaction(async (tx) => {
+    await tx.dataSourceTable.updateMany({
+      where: { schema: { dataSourceId: source.id } },
+      data: { selected: false, sampleDataEnabled: false },
+    });
+    await tx.dataSourceTable.updateMany({
+      where: { id: { in: selectedIds }, schema: { dataSourceId: source.id } },
+      data: { selected: true },
+    });
+    if (parsed.data.sampleDataEnabled && sampleIds.length)
+      await tx.dataSourceTable.updateMany({
+        where: { id: { in: sampleIds }, schema: { dataSourceId: source.id } },
+        data: { sampleDataEnabled: true },
+      });
+    await tx.dataSourceSchema.updateMany({
+      where: { dataSourceId: source.id },
+      data: { selected: false },
+    });
+    await tx.dataSourceSchema.updateMany({
+      where: {
+        dataSourceId: source.id,
+        tables: { some: { id: { in: selectedIds } } },
+      },
+      data: { selected: true },
+    });
+    await tx.dataSource.update({
+      where: { id: source.id },
+      data: { sampleDataEnabled: parsed.data.sampleDataEnabled },
+    });
+    await tx.auditLog.create({
+      data: {
+        organizationId: context.organizationId,
+        workspaceId: context.workspaceId,
+        actorId: context.userId,
+        action: "DATABASE_SCOPE_UPDATED",
+        entityType: "DataSource",
+        entityId: source.id,
+        outcome: "SUCCESS",
+        metadata: {
+          selectedTableCount: selectedIds.length,
+          sampleTableCount: parsed.data.sampleDataEnabled
+            ? sampleIds.length
+            : 0,
+        },
+      },
+    });
+  });
+  revalidatePath(`/workspace/data-sources/${source.id}`);
+  return success({
+    selected: selectedIds.length,
+    samples: parsed.data.sampleDataEnabled ? sampleIds.length : 0,
+  });
+}
+
+export async function enrichDatabaseMetadataAction(
+  _state: unknown,
+  formData: FormData,
+) {
+  const context = await requireAuthorization();
+  await requirePermission(context, "datasource.update");
+  const dataSourceId = String(formData.get("dataSourceId") ?? "");
+  if (!dataSourceId)
+    return failure("VALIDATION_ERROR", "Data source is required.");
+  const result = await enrichDatabaseMetadata(context, dataSourceId);
+  if (result.ok) revalidatePath(`/workspace/data-sources/${dataSourceId}`);
+  return result;
+}
+
+export async function proposeDatabaseQueryAction(
+  _state: unknown,
+  formData: FormData,
+) {
+  const context = await requireAuthorization();
+  const parsed = databaseQuestionInputSchema.safeParse({
+    dataSourceId: formData.get("dataSourceId"),
+    question: formData.get("question"),
+    botId: formData.get("botId") || undefined,
+  });
+  if (!parsed.success)
+    return failure("VALIDATION_ERROR", "Enter a database question.", {
+      fieldErrors: parsed.error.flatten().fieldErrors,
+    });
+  return proposeDatabaseQuery(context, parsed.data);
+}
+
+export async function executeDatabaseQueryAction(
+  _state: unknown,
+  formData: FormData,
+) {
+  const context = await requireAuthorization();
+  const parsed = databaseQueryIdSchema.safeParse({ id: formData.get("id") });
+  if (!parsed.success)
+    return failure("VALIDATION_ERROR", "Validated query is required.");
+  return executeDatabaseQuery(context, parsed.data.id);
+}
+
+export async function cancelDatabaseQueryAction(
+  _state: unknown,
+  formData: FormData,
+) {
+  const context = await requireAuthorization();
+  const parsed = databaseQueryIdSchema.safeParse({ id: formData.get("id") });
+  if (!parsed.success)
+    return failure("VALIDATION_ERROR", "Running query is required.");
+  return cancelDatabaseQuery(context, parsed.data.id);
 }
 
 export async function saveObjectiveAction(input: unknown) {

@@ -5,6 +5,8 @@ export const metadataColumnContextSchema = z.object({
   dataType: z.string(),
   nullable: z.boolean(),
   primaryKey: z.boolean(),
+  databaseComment: z.string().nullable().optional(),
+  semanticDescription: z.string().nullable().optional(),
 });
 
 export const metadataTableContextSchema = z.object({
@@ -12,6 +14,8 @@ export const metadataTableContextSchema = z.object({
   name: z.string(),
   kind: z.enum(["TABLE", "VIEW"]),
   estimatedRowCount: z.string().nullable(),
+  databaseComment: z.string().nullable().optional(),
+  semanticDescription: z.string().nullable().optional(),
   columns: z.array(metadataColumnContextSchema),
   omittedColumnCount: z.number().int().nonnegative(),
   sampleRows: z.array(z.record(z.string(), z.unknown())),
@@ -27,7 +31,7 @@ export const metadataRelationshipContextSchema = z.object({
 
 export const metadataContextSchema = z.object({
   version: z.literal(1),
-  dataSourceType: z.enum(["MYSQL", "ORACLE"]),
+  dataSourceType: z.enum(["MYSQL", "POSTGRESQL", "MSSQL", "ORACLE"]),
   dataSourceName: z.string(),
   tables: z.array(metadataTableContextSchema),
   relationships: z.array(metadataRelationshipContextSchema),

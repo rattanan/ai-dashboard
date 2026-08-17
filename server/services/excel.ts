@@ -1,4 +1,5 @@
 import * as XLSX from "xlsx";
+import path from "node:path";
 import { failure, success } from "@/types/result";
 import type { ObjectStorageService } from "@/server/storage/object-storage";
 
@@ -66,6 +67,9 @@ export class ExcelUploadService {
   async upload(file: File) {
     if (
       !EXTENSION.test(file.name) ||
+      path.basename(file.name) !== file.name ||
+      file.name.length > 180 ||
+      /[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/u.test(file.name) ||
       !MIME_TYPES.has(file.type || "application/octet-stream")
     )
       return failure("FILE_INVALID", "Choose an .xlsx workbook.");

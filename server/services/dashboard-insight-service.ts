@@ -14,6 +14,7 @@ import { validateInsightGrounding } from "@/server/ai/grounding";
 import { sanitizeSampleRow } from "./sensitive-data";
 import { failure, success } from "@/types/result";
 import { insightDisplaySchema } from "@/schemas/dashboard-insights";
+import { getEffectiveAiPrivacyPolicy } from "./privacy-policy";
 
 type DisplayInsight = z.infer<typeof insightDisplaySchema>;
 
@@ -53,6 +54,9 @@ export async function analyzeFilteredDashboardInsights(
 ) {
   await requireDashboardAccess(context, dashboardId, "view");
   const configuration = env();
+  const privacyPolicy = await getEffectiveAiPrivacyPolicy(
+    context.organizationId,
+  );
   const dashboard = await db.dashboard.findFirst({
     where: { id: dashboardId, workspaceId: context.workspaceId },
     include: {
@@ -115,7 +119,8 @@ export async function analyzeFilteredDashboardInsights(
           .slice(0, configuration.QUERY_PREVIEW_ROWS)
           .map((row) =>
             sanitizeSampleRow(row, {
-              maskSensitiveData: configuration.AI_MASK_SENSITIVE_DATA,
+              maskSensitiveData: privacyPolicy.maskSensitiveData,
+              maskingRules: privacyPolicy.maskingRules,
               maxLength: configuration.AI_MAX_SAMPLE_CELL_LENGTH,
             }),
           ),

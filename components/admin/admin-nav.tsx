@@ -1,8 +1,19 @@
 import Link from "next/link";
 
 const links = [
+  ["Overview", "/workspace/admin"],
   ["Users", "/workspace/admin/users"],
   ["Roles & permissions", "/workspace/admin/roles"],
+  ["Bots", "/workspace/admin/bots"],
+  ["Knowledge racks", "/workspace/admin/knowledge"],
+  ["Index operations", "/workspace/admin/knowledge/index-jobs"],
+  ["Organization scopes", "/workspace/admin/scopes"],
+  ["Authentication", "/workspace/admin/authentication"],
+  ["Access simulator", "/workspace/admin/access-simulator"],
+  ["LLM providers", "/workspace/admin/providers"],
+  ["Legacy APIs", "/workspace/admin/legacy-apis"],
+  ["Privacy & retention", "/workspace/admin/privacy"],
+  ["System health", "/workspace/admin/system-health"],
   ["Login history", "/workspace/admin/login-history"],
   ["Audit logs", "/workspace/admin/audit-logs"],
 ] as const;

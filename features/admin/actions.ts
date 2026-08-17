@@ -19,10 +19,35 @@ import { failure, success, type AppResult } from "@/types/result";
 const passwordHash = (password: string) =>
   hash(password, { algorithm: 2, memoryCost: 19456, timeCost: 2 });
 
+function userFormData(formData: FormData) {
+  return {
+    ...Object.fromEntries(formData),
+    projectIds: formData.getAll("projectIds"),
+  };
+}
+
+async function scopeIsValid(
+  organizationId: string,
+  organizationUnitId: string | undefined,
+  projectIds: string[],
+) {
+  const [unitCount, projectCount] = await Promise.all([
+    organizationUnitId
+      ? db.organizationUnit.count({
+          where: { id: organizationUnitId, organizationId, active: true },
+        })
+      : Promise.resolve(1),
+    db.organizationProject.count({
+      where: { id: { in: projectIds }, organizationId, active: true },
+    }),
+  ]);
+  return unitCount === 1 && projectCount === new Set(projectIds).size;
+}
+
 export async function createUserAction(_state: unknown, formData: FormData) {
   const context = await requireAuthorization();
   await requirePermission(context, "user.create");
-  const parsed = createUserSchema.safeParse(Object.fromEntries(formData));
+  const parsed = createUserSchema.safeParse(userFormData(formData));
   if (!parsed.success)
     return failure("VALIDATION_ERROR", "Check the highlighted user details.", {
       fieldErrors: parsed.error.flatten().fieldErrors,
@@ -31,6 +56,14 @@ export async function createUserAction(_state: unknown, formData: FormData) {
     where: { id: parsed.data.roleId, organizationId: context.organizationId },
   });
   if (!role) return failure("NOT_FOUND", "Role not found.");
+  if (
+    !(await scopeIsValid(
+      context.organizationId,
+      parsed.data.organizationUnitId,
+      parsed.data.projectIds,
+    ))
+  )
+    return failure("VALIDATION_ERROR", "Department or project is invalid.");
   const existing = await db.user.findFirst({
     where: {
       OR: [{ email: parsed.data.email }, { username: parsed.data.username }],
@@ -49,7 +82,16 @@ export async function createUserAction(_state: unknown, formData: FormData) {
         mustChangePassword: parsed.data.forcePasswordChange,
         createdById: context.userId,
         memberships: {
-          create: { organizationId: context.organizationId, role: "VIEWER" },
+          create: {
+            organizationId: context.organizationId,
+            role: "VIEWER",
+            organizationUnitId: parsed.data.organizationUnitId,
+            projects: {
+              create: parsed.data.projectIds.map((projectId) => ({
+                projectId,
+              })),
+            },
+          },
         },
         userRoles: {
           create: { organizationId: context.organizationId, roleId: role.id },
@@ -76,6 +118,8 @@ export async function createUserAction(_state: unknown, formData: FormData) {
           username: created.username,
           status: created.status,
           role: role.name,
+          organizationUnitId: parsed.data.organizationUnitId,
+          projectIds: parsed.data.projectIds,
         },
       },
     });
@@ -217,7 +261,7 @@ export async function assignUserRoleAction(formData: FormData) {
 export async function updateUserAction(_state: unknown, formData: FormData) {
   const context = await requireAuthorization();
   await requirePermission(context, "user.update");
-  const parsed = updateUserSchema.safeParse(Object.fromEntries(formData));
+  const parsed = updateUserSchema.safeParse(userFormData(formData));
   if (!parsed.success)
     return failure("VALIDATION_ERROR", "Check the user profile details.", {
       fieldErrors: parsed.error.flatten().fieldErrors,
@@ -227,19 +271,49 @@ export async function updateUserAction(_state: unknown, formData: FormData) {
       id: parsed.data.userId,
       memberships: { some: { organizationId: context.organizationId } },
     },
+    include: {
+      memberships: {
+        where: { organizationId: context.organizationId },
+        include: { projects: true },
+      },
+    },
   });
   if (!before) return failure("NOT_FOUND", "User not found.");
+  if (
+    !(await scopeIsValid(
+      context.organizationId,
+      parsed.data.organizationUnitId,
+      parsed.data.projectIds,
+    ))
+  )
+    return failure("VALIDATION_ERROR", "Department or project is invalid.");
+  const membership = before.memberships[0];
+  if (!membership) return failure("NOT_FOUND", "Membership not found.");
   try {
-    await db.$transaction([
-      db.user.update({
+    await db.$transaction(async (tx) => {
+      await tx.user.update({
         where: { id: before.id },
         data: {
           name: parsed.data.name,
           email: parsed.data.email,
           username: parsed.data.username,
         },
-      }),
-      db.aIAccessPolicy.upsert({
+      });
+      await tx.organizationMember.update({
+        where: { id: membership.id },
+        data: { organizationUnitId: parsed.data.organizationUnitId ?? null },
+      });
+      await tx.userProject.deleteMany({
+        where: { organizationMemberId: membership.id },
+      });
+      if (parsed.data.projectIds.length)
+        await tx.userProject.createMany({
+          data: parsed.data.projectIds.map((projectId) => ({
+            organizationMemberId: membership.id,
+            projectId,
+          })),
+        });
+      await tx.aIAccessPolicy.upsert({
         where: {
           organizationId_userId: {
             organizationId: context.organizationId,
@@ -252,8 +326,8 @@ export async function updateUserAction(_state: unknown, formData: FormData) {
           userId: before.id,
           copilotEnabled: parsed.data.copilotEnabled,
         },
-      }),
-      db.auditLog.create({
+      });
+      await tx.auditLog.create({
         data: {
           organizationId: context.organizationId,
           workspaceId: context.workspaceId,
@@ -272,10 +346,12 @@ export async function updateUserAction(_state: unknown, formData: FormData) {
             email: parsed.data.email,
             username: parsed.data.username,
             copilotEnabled: parsed.data.copilotEnabled,
+            organizationUnitId: parsed.data.organizationUnitId,
+            projectIds: parsed.data.projectIds,
           },
         },
-      }),
-    ]);
+      });
+    });
   } catch {
     return failure("CONFLICT", "Email or username is already in use.");
   }

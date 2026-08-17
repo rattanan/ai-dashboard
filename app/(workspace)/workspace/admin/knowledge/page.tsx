@@ -1,0 +1,162 @@
+import { Badge } from "@/components/ui/badge";
+import { PageHeader } from "@/components/ui/page-header";
+import {
+  DocumentUploadForm,
+  KnowledgeRackForm,
+} from "@/components/knowledge/phase2-forms";
+import { KnowledgeStudioNav } from "@/components/knowledge/studio-nav";
+import { retryDocumentIndexAction } from "@/features/knowledge/actions";
+import { requireAuthorization } from "@/server/auth/authorization";
+import { requirePermission } from "@/server/auth/permissions";
+import { db } from "@/server/db";
+
+export default async function KnowledgeRackAdministrationPage() {
+  const context = await requireAuthorization();
+  await requirePermission(context, "knowledge.manage");
+  const [racks, roles] = await Promise.all([
+    db.knowledgeRack.findMany({
+      where: { organizationId: context.organizationId },
+      include: {
+        sources: {
+          include: {
+            documents: {
+              include: {
+                currentVersion: { select: { id: true } },
+                versions: {
+                  orderBy: { version: "desc" },
+                  take: 1,
+                  include: {
+                    indexJobs: { orderBy: { createdAt: "desc" }, take: 1 },
+                    _count: { select: { chunks: true } },
+                  },
+                },
+              },
+              orderBy: { updatedAt: "desc" },
+            },
+          },
+        },
+        _count: { select: { bots: true, access: true } },
+      },
+      orderBy: { name: "asc" },
+    }),
+    db.role.findMany({
+      where: { organizationId: context.organizationId },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    }),
+  ]);
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        title="Knowledge racks"
+        description="Upload governed documents and monitor parsing, chunking, embedding, retries, and index versions."
+      />
+      <KnowledgeStudioNav />
+      {racks.map((rack) => {
+        const documents = rack.sources.flatMap((source) => source.documents);
+        return (
+          <section
+            key={rack.id}
+            className="space-y-5 rounded-xl border bg-card p-5"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="font-semibold">{rack.name}</h2>
+                <p className="text-sm text-muted-foreground">
+                  {rack.description ?? "File knowledge source"} ·{" "}
+                  {rack._count.bots} bots · {rack._count.access} ACL entries
+                </p>
+              </div>
+              <Badge tone={rack.active ? "success" : "neutral"}>
+                {rack.active ? "ACTIVE" : "INACTIVE"}
+              </Badge>
+            </div>
+            <DocumentUploadForm rackId={rack.id} />
+            <div className="overflow-x-auto border-t pt-4">
+              <table className="w-full text-left text-sm">
+                <thead className="text-muted-foreground">
+                  <tr>
+                    <th className="py-2 pr-4">Document</th>
+                    <th className="py-2 pr-4">Version</th>
+                    <th className="py-2 pr-4">Status</th>
+                    <th className="py-2 pr-4">Chunks</th>
+                    <th className="py-2">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {documents.map((document) => {
+                    const version = document.versions[0];
+                    const job = version?.indexJobs[0];
+                    return (
+                      <tr key={document.id}>
+                        <td className="py-3 pr-4 font-medium">
+                          {document.name}
+                        </td>
+                        <td className="py-3 pr-4">{version?.version ?? "—"}</td>
+                        <td className="py-3 pr-4">
+                          <Badge
+                            tone={
+                              version?.status === "INDEXED"
+                                ? "success"
+                                : version?.status === "FAILED"
+                                  ? "danger"
+                                  : "warning"
+                            }
+                          >
+                            {version?.status ?? "UNKNOWN"}
+                          </Badge>
+                          {version?.errorMessage ? (
+                            <p className="mt-1 max-w-md text-xs text-red-700">
+                              {version.errorMessage}
+                            </p>
+                          ) : null}
+                        </td>
+                        <td className="py-3 pr-4">
+                          {version?._count.chunks ?? 0}
+                        </td>
+                        <td className="py-3">
+                          {version?.status === "FAILED" && job ? (
+                            <form action={retryDocumentIndexAction}>
+                              <input
+                                type="hidden"
+                                name="id"
+                                value={document.id}
+                              />
+                              <button className="min-h-10 rounded-lg border px-3">
+                                Retry index
+                              </button>
+                            </form>
+                          ) : document.currentVersion ? (
+                            <a
+                              className="text-indigo-700 underline"
+                              href={`/api/documents/${document.id}/download`}
+                            >
+                              Open source
+                            </a>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {!documents.length ? (
+                    <tr>
+                      <td className="py-5 text-muted-foreground" colSpan={5}>
+                        No documents uploaded.
+                      </td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        );
+      })}
+      <section className="rounded-xl border border-dashed bg-card p-5">
+        <h2 className="mb-5 font-semibold">Create knowledge rack</h2>
+        <KnowledgeRackForm roles={roles} />
+      </section>
+    </div>
+  );
+}

@@ -11,6 +11,8 @@ import { Field } from "@/components/ui/field";
 
 export function EditUserForm({
   user,
+  organizationUnits,
+  projects,
 }: {
   user: {
     id: string;
@@ -18,7 +20,11 @@ export function EditUserForm({
     email: string;
     username: string | null;
     copilotEnabled: boolean;
+    organizationUnitId: string | null;
+    projectIds: string[];
   };
+  organizationUnits: { id: string; name: string }[];
+  projects: { id: string; name: string }[];
 }) {
   const [state, action, pending] = useActionState(updateUserAction, null);
   return (
@@ -43,6 +49,39 @@ export function EditUserForm({
           defaultValue={user.username ?? ""}
           required
         />
+      </Field>
+      <Field
+        label="Department / organization unit"
+        htmlFor="organizationUnitId"
+      >
+        <select
+          id="organizationUnitId"
+          name="organizationUnitId"
+          defaultValue={user.organizationUnitId ?? ""}
+          className="min-h-11 w-full rounded-lg border bg-white px-3"
+        >
+          <option value="">Unassigned</option>
+          {organizationUnits.map((unit) => (
+            <option key={unit.id} value={unit.id}>
+              {unit.name}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <Field label="Projects" htmlFor="projectIds">
+        <select
+          id="projectIds"
+          name="projectIds"
+          multiple
+          defaultValue={user.projectIds}
+          className="min-h-28 w-full rounded-lg border bg-white px-3 py-2"
+        >
+          {projects.map((project) => (
+            <option key={project.id} value={project.id}>
+              {project.name}
+            </option>
+          ))}
+        </select>
       </Field>
       <label className="flex min-h-11 items-center gap-2 pt-6 text-sm">
         <input

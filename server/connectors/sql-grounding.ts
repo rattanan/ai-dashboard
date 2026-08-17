@@ -1,7 +1,11 @@
 import { Parser } from "node-sql-parser";
 import type { MetadataContext } from "@/schemas/analysis";
-import { failure, success } from "@/types/result";
-import { validateOracleReadOnlySql, validateReadOnlySql } from "./sql-guard";
+import { failure, success, type AppResult } from "@/types/result";
+import {
+  validateDialectReadOnlySql,
+  validateOracleReadOnlySql,
+  type SqlDialect,
+} from "./sql-guard";
 
 const parser = new Parser();
 const FORBIDDEN_FUNCTIONS = new Set([
@@ -153,53 +157,58 @@ function applyRowLimit(ast: AstNode, maxRows: number) {
 export type GroundedSqlScope = Pick<
   MetadataContext,
   "tables" | "relationships"
-> & { dataSourceType?: "MYSQL" | "ORACLE" };
+> & { dataSourceType?: SqlDialect };
+
+type GroundedSqlValidation = AppResult<{
+  sql: string;
+  tables: string[];
+  columns: string[];
+}>;
+
+function parserDatabase(dialect: Exclude<SqlDialect, "ORACLE">) {
+  return dialect === "MYSQL"
+    ? "MySQL"
+    : dialect === "POSTGRESQL"
+      ? "Postgresql"
+      : "TransactSQL";
+}
+
+function applyDialectRowLimit(
+  ast: AstNode,
+  dialect: Exclude<SqlDialect, "ORACLE">,
+  maxRows: number,
+) {
+  if (dialect !== "MSSQL") return applyRowLimit(ast, maxRows);
+  const top = ast.top as { value?: unknown; percent?: unknown } | null;
+  if (
+    top?.percent ||
+    (top?.value != null && !Number.isInteger(Number(top.value)))
+  )
+    return false;
+  if (!top || Number(top.value) > maxRows)
+    ast.top = { value: maxRows, percent: null };
+  return true;
+}
 
 function validateOracleGroundedReadOnlySql(
   sql: string,
   scope: GroundedSqlScope,
   maxRows: number,
-) {
-  const base = validateOracleReadOnlySql(sql);
+): GroundedSqlValidation {
+  const base = validateOracleReadOnlySql(sql, maxRows);
   if (!base.ok) return base;
-  const allowedTables = new Map(
-    scope.tables.map((table) => [
-      `${table.schema.toLowerCase()}.${table.name.toLowerCase()}`,
-      table,
-    ]),
-  );
-  const referencedTables: string[] = [];
-  const tablePattern =
-    /\b(?:from|join)\s+(?:"([^"]+)"|([A-Za-z][A-Za-z0-9_$#]*))\s*\.\s*(?:"([^"]+)"|([A-Za-z][A-Za-z0-9_$#]*))/gi;
-  for (const match of base.data.sql.matchAll(tablePattern)) {
-    const schema = match[1] ?? match[2];
-    const table = match[3] ?? match[4];
-    const key = `${schema.toLowerCase()}.${table.toLowerCase()}`;
-    if (!allowedTables.has(key))
-      return failure(
-        "QUERY_VALIDATION_FAILED",
-        "The query references a table outside the approved analysis scope.",
-        { diagnostics: { invalidTable: `${schema}.${table}` } },
-      );
-    referencedTables.push(key);
-  }
-  if (!referencedTables.length)
-    return failure(
-      "QUERY_VALIDATION_FAILED",
-      "Oracle queries must reference a schema-qualified approved table.",
-    );
   const fetch = /\s+fetch\s+first\s+(\d+)\s+rows?\s+only\s*$/i;
-  const existing = base.data.sql.match(fetch);
-  const sqlWithLimit = existing
-    ? base.data.sql.replace(
-        fetch,
-        ` FETCH FIRST ${Math.min(Number(existing[1]), maxRows)} ROWS ONLY`,
-      )
-    : `${base.data.sql} FETCH FIRST ${maxRows} ROWS ONLY`;
+  const astInput = base.data.sql.replace(fetch, "");
+  const astGrounding = validateGroundedReadOnlySql(
+    astInput,
+    { ...scope, dataSourceType: "POSTGRESQL" },
+    maxRows,
+  );
+  if (!astGrounding.ok) return astGrounding;
   return success({
-    sql: sqlWithLimit,
-    tables: [...new Set(referencedTables)],
-    columns: [],
+    sql: base.data.sql,
+    tables: astGrounding.data.tables,
+    columns: astGrounding.data.columns,
   });
 }
 
@@ -207,13 +216,15 @@ export function validateGroundedReadOnlySql(
   sql: string,
   scope: GroundedSqlScope,
   maxRows: number,
-) {
+): GroundedSqlValidation {
   if (scope.dataSourceType === "ORACLE")
     return validateOracleGroundedReadOnlySql(sql, scope, maxRows);
-  const base = validateReadOnlySql(sql);
+  const dialect = scope.dataSourceType ?? "MYSQL";
+  const database = parserDatabase(dialect);
+  const base = validateDialectReadOnlySql(sql, dialect, maxRows);
   if (!base.ok) return base;
   try {
-    const parsed = parser.astify(base.data.sql, { database: "MySQL" });
+    const parsed = parser.astify(base.data.sql, { database });
     if (Array.isArray(parsed) || !parsed || parsed.type !== "select")
       return failure(
         "QUERY_VALIDATION_FAILED",
@@ -234,7 +245,7 @@ export function validateGroundedReadOnlySql(
       tablesByName.set(name, [...(tablesByName.get(name) ?? []), fullName]);
     }
     const referencedTables = parser
-      .tableList(base.data.sql, { database: "MySQL" })
+      .tableList(base.data.sql, { database })
       .map(parsedTableReference);
     const physicalReferences: string[] = [];
     for (const reference of referencedTables) {
@@ -275,7 +286,7 @@ export function validateGroundedReadOnlySql(
         explicitColumnReferences.add(node.column.toLowerCase());
     });
     for (const reference of parser
-      .columnList(base.data.sql, { database: "MySQL" })
+      .columnList(base.data.sql, { database })
       .map(parsedColumnReference)) {
       const columnName = reference.name.toLowerCase();
       if (columnName === "*") continue;
@@ -427,16 +438,16 @@ export function validateGroundedReadOnlySql(
       }
     }
 
-    if (!applyRowLimit(ast, maxRows))
+    if (!applyDialectRowLimit(ast, dialect, maxRows))
       return failure(
         "QUERY_VALIDATION_FAILED",
         "The query row limit must be a fixed number.",
       );
-    const guardedSql = parser.sqlify(ast as never, { database: "MySQL" });
+    const guardedSql = parser.sqlify(ast as never, { database });
     return success({
       sql: guardedSql,
       tables: uniqueTables,
-      columns: parser.columnList(base.data.sql, { database: "MySQL" }),
+      columns: parser.columnList(base.data.sql, { database }),
     });
   } catch {
     return failure(

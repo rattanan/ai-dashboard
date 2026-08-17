@@ -29,6 +29,7 @@ const input: MetadataContextInput = {
       name: "customers",
       kind: "TABLE",
       estimatedRowCount: 10n,
+      sampleDataEnabled: true,
       columns: [
         {
           name: "id",
@@ -52,6 +53,7 @@ const input: MetadataContextInput = {
       name: "orders",
       kind: "TABLE",
       estimatedRowCount: 50n,
+      sampleDataEnabled: true,
       columns: [
         {
           name: "id",
@@ -174,5 +176,25 @@ describe("sensitive sample masking", () => {
         maxLength: 8,
       }),
     ).toBe("abcdefgh…");
+  });
+
+  it("honors tenant masking categories while always protecting credentials", () => {
+    const options = {
+      maskSensitiveData: true,
+      maxLength: 100,
+      maskingRules: {
+        maskEmail: false,
+        maskPhone: true,
+        maskNationalId: true,
+        maskFinancialAccount: true,
+      },
+    };
+    expect(sanitizeSampleCell("email", "person@example.com", options)).toBe(
+      "person@example.com",
+    );
+    expect(sanitizeSampleCell("phone", "+66 81 234 5678", options)).toBe(
+      "[MASKED]",
+    );
+    expect(sanitizeSampleCell("api_token", "short", options)).toBe("[MASKED]");
   });
 });

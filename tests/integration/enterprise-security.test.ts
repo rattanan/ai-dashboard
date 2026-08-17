@@ -21,6 +21,53 @@ const prisma = process.env.TEST_DATABASE_URL
 afterAll(async () => prisma?.$disconnect());
 
 describe.skipIf(!enabled)("enterprise account security integration", () => {
+  it("locks an account after repeated invalid passwords", async () => {
+    const suffix = crypto.randomUUID();
+    const password = "TemporaryPassword1";
+    const user = await prisma!.user.create({
+      data: {
+        name: "Lock Test",
+        email: `lock-${suffix}@example.test`,
+        username: `lock-${suffix}`,
+        passwordHash: await hash(password, {
+          algorithm: 2,
+          memoryCost: 19456,
+          timeCost: 2,
+        }),
+        status: "ACTIVE",
+      },
+    });
+    const organization = await prisma!.organization.create({
+      data: {
+        name: "Lock Test",
+        slug: `lock-${suffix}`,
+        members: { create: { userId: user.id } },
+      },
+    });
+    const request = new Request("http://localhost/login", {
+      headers: {
+        "x-forwarded-for": `192.0.2.${Math.floor(Math.random() * 100) + 100}`,
+      },
+    });
+    for (let attempt = 0; attempt < 5; attempt += 1)
+      expect(
+        await authenticateCredentials(
+          user.username!,
+          "InvalidPassword1",
+          request,
+        ),
+      ).toBeNull();
+    expect(
+      await prisma!.user.findUnique({ where: { id: user.id } }),
+    ).toMatchObject({
+      status: "LOCKED",
+      failedLoginCount: 5,
+      sessionVersion: 2,
+    });
+    await prisma!.organization.delete({ where: { id: organization.id } });
+    await prisma!.user.delete({ where: { id: user.id } });
+  });
+
   it("enforces permissions, reset expiry, session invalidation, and disabled login", async () => {
     const suffix = crypto.randomUUID();
     const password = "TemporaryPassword1";

@@ -5,7 +5,7 @@ test("public product and administrator-managed registration policy render", asyn
 }) => {
   await page.goto("/");
   await expect(
-    page.getByRole("heading", { name: /Turn operational data/ }),
+    page.getByRole("heading", { name: /Turn trusted knowledge/ }),
   ).toBeVisible();
   await page.goto("/register");
   await expect(

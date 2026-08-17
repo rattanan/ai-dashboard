@@ -6,12 +6,23 @@ import { authenticateCredentials } from "@/server/services/login-security";
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   secret: process.env.AUTH_SECRET,
-  trustHost: true,
+  trustHost:
+    process.env.NODE_ENV !== "production" ||
+    process.env.AUTH_TRUST_HOST === "true",
+  // Production images are also used for the local HTTP Compose drill. Secure
+  // cookies follow the externally advertised URL so that the drill remains
+  // usable while HTTPS deployments still receive secure-only cookies.
+  useSecureCookies: (process.env.APP_URL ?? "").startsWith("https://"),
   session: { strategy: "jwt" },
   pages: { signIn: "/login" },
   providers: [
     Credentials({
-      credentials: { identifier: {}, password: {}, rememberMe: {} },
+      credentials: {
+        identifier: {},
+        password: {},
+        rememberMe: {},
+        organization: {},
+      },
       async authorize(raw, request) {
         const parsed = loginSchema.safeParse(raw);
         if (!parsed.success) return null;
@@ -19,6 +30,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           parsed.data.identifier,
           parsed.data.password,
           request,
+          parsed.data.organization,
         );
         if (!authenticated) return null;
         const { user, loginHistoryId } = authenticated;

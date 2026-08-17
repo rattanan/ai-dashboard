@@ -14,7 +14,8 @@ describe("copilot prompt schema", () => {
 
   it("rejects an empty prompt and untrusted dashboard identifier", () => {
     expect(
-      copilotPromptSchema.safeParse({ dashboardId: "other", prompt: "" }).success,
+      copilotPromptSchema.safeParse({ dashboardId: "other", prompt: "" })
+        .success,
     ).toBe(false);
   });
 });
