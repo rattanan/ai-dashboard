@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { AdminNav } from "@/components/admin/admin-nav";
 import { OrganizationScopeForm } from "@/components/admin/phase1-forms";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
@@ -16,7 +15,6 @@ export default async function NewOrganizationScopePage() {
         title="Add organization scope"
         description="Create a department or project scope, then assign it to users from the user administration page."
       />
-      <AdminNav />
       <Button asChild variant="outline">
         <Link href="/workspace/admin/scopes">Back to organization scopes</Link>
       </Button>

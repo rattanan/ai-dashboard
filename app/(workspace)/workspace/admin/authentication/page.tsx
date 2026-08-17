@@ -1,4 +1,3 @@
-import { AdminNav } from "@/components/admin/admin-nav";
 import {
   AuthenticationPolicyForm,
   ExternalAuthenticationTestForm,
@@ -43,7 +42,6 @@ export default async function AuthenticationAdminPage() {
         title="Authentication & embedded widget"
         description="Configure tenant authentication precedence, signed embedded identity, external credential validation, and host integration."
       />
-      <AdminNav />
       <AuthenticationPolicyForm
         value={{
           localEnabled: policy?.localEnabled ?? true,

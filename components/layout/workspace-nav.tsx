@@ -248,6 +248,13 @@ const groups: Array<{ label: string; items: NavigationItem[] }> = [
     label: "System Admin",
     items: [
       {
+        href: "/workspace/admin",
+        label: "Overview",
+        icon: Gauge,
+        show: "userManagement",
+        exact: true,
+      },
+      {
         href: "/workspace/admin/chat-endpoint",
         label: "Chat AI Endpoint",
         icon: BrainCircuit,
@@ -270,15 +277,15 @@ const groups: Array<{ label: string; items: NavigationItem[] }> = [
       },
       {
         href: "/workspace/admin/users",
-        label: "Users & Roles",
+        label: "Users",
         icon: UsersRound,
-        showAny: ["userManagement", "roleManagement"],
-        activePrefixes: [
-          "/workspace/admin/users",
-          "/workspace/admin/roles",
-          "/workspace/admin/scopes",
-          "/workspace/admin/access-simulator",
-        ],
+        show: "userManagement",
+      },
+      {
+        href: "/workspace/admin/roles",
+        label: "Roles",
+        icon: ShieldCheck,
+        show: "roleManagement",
       },
       {
         href: "/workspace/admin/storage",
@@ -316,6 +323,19 @@ const groups: Array<{ label: string; items: NavigationItem[] }> = [
         label: "System Health",
         icon: Activity,
         show: "systemHealth",
+        exact: true,
+      },
+      {
+        href: "/workspace/admin/scopes",
+        label: "Scopes",
+        icon: Network,
+        show: "authenticationManagement",
+      },
+      {
+        href: "/workspace/admin/access-simulator",
+        label: "Access Simulator",
+        icon: LockKeyhole,
+        show: "roleManagement",
         exact: true,
       },
     ],

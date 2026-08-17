@@ -1,5 +1,4 @@
 import { HardDrive, ShieldCheck } from "lucide-react";
-import { AdminNav } from "@/components/admin/admin-nav";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
@@ -51,7 +50,6 @@ export default async function StorageAdministrationPage() {
         title="Storage"
         description="Read-only storage configuration and tenant-scoped usage for uploaded knowledge and database files."
       />
-      <AdminNav />
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {[
           ["Active documents", documents.toLocaleString()],

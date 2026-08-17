@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { AdminNav } from "@/components/admin/admin-nav";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
 import { toggleOrganizationScopeAction } from "@/features/admin/config-actions";
@@ -39,7 +38,6 @@ export default async function OrganizationScopesPage() {
           </Button>
         }
       />
-      <AdminNav />
       <div className="grid gap-6 xl:grid-cols-2">
         {groups.map((group) => (
           <section

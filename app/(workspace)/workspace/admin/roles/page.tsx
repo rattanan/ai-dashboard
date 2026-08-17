@@ -1,4 +1,3 @@
-import { AdminNav } from "@/components/admin/admin-nav";
 import { PageHeader } from "@/components/ui/page-header";
 import { requireAuthorization } from "@/server/auth/authorization";
 import { requirePermission } from "@/server/auth/permissions";
@@ -23,7 +22,6 @@ export default async function RolesPage() {
         title="Roles & permissions"
         description="Server-enforced tenant roles and their effective permission grants."
       />
-      <AdminNav />
       <div className="grid gap-5 lg:grid-cols-2">
         {roles.map((role) => (
           <section key={role.id} className="rounded-xl border bg-card p-5">

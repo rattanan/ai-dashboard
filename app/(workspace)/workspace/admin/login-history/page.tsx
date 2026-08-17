@@ -1,4 +1,3 @@
-import { AdminNav } from "@/components/admin/admin-nav";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/ui/page-header";
 import { requireAuthorization } from "@/server/auth/authorization";
@@ -55,7 +54,6 @@ export default async function LoginHistoryPage({
           ) : undefined
         }
       />
-      <AdminNav />
       <form className="grid gap-3 rounded-xl border bg-card p-4 sm:grid-cols-[1fr_220px_auto]">
         <input
           name="q"

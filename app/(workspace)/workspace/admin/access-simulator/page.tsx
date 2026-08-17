@@ -1,4 +1,3 @@
-import { AdminNav } from "@/components/admin/admin-nav";
 import {
   AccessSimulatorForm,
   ResourceAclForm,
@@ -42,7 +41,6 @@ export default async function AccessSimulatorPage() {
         title="Resource ACL & access simulator"
         description="Manage fine-grained allow/deny rules and explain the central authorization decision before deploying a policy."
       />
-      <AdminNav />
       <section className="space-y-4 rounded-xl border bg-card p-5">
         <div>
           <h2 className="font-semibold">Simulate authorization</h2>

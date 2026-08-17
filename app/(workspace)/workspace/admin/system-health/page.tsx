@@ -1,4 +1,3 @@
-import { AdminNav } from "@/components/admin/admin-nav";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/ui/page-header";
 import { requireAuthorization } from "@/server/auth/authorization";
@@ -60,7 +59,6 @@ export default async function SystemHealthPage() {
         title="System health"
         description={`Live infrastructure checks · ${health.platform.checkedAt}`}
       />
-      <AdminNav />
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {checks.map(([name, check]) => (
           <div key={name} className="rounded-xl border bg-card p-5">

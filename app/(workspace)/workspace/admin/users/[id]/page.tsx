@@ -1,5 +1,4 @@
 import { notFound } from "next/navigation";
-import { AdminNav } from "@/components/admin/admin-nav";
 import {
   EditUserForm,
   ResetUserPasswordForm,
@@ -102,7 +101,6 @@ export default async function UserDetailPage({
         title={user.name ?? user.email}
         description={`${user.email} · @${user.username ?? "unassigned"}`}
       />
-      <AdminNav />
       <div className="flex flex-wrap items-center gap-3">
         <Badge
           tone={

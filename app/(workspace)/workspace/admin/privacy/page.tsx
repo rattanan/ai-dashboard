@@ -1,4 +1,3 @@
-import { AdminNav } from "@/components/admin/admin-nav";
 import { PrivacyPolicyForm } from "@/components/admin/phase1-forms";
 import { PageHeader } from "@/components/ui/page-header";
 import { requireAuthorization } from "@/server/auth/authorization";
@@ -22,7 +21,6 @@ export default async function PrivacyPage() {
         title="Privacy & retention"
         description="Control PII masking before AI processing and define auditable data-retention windows."
       />
-      <AdminNav />
       <section className="rounded-xl border bg-card p-5">
         <PrivacyPolicyForm
           policy={{

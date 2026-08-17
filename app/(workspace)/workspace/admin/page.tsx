@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { AdminNav } from "@/components/admin/admin-nav";
 import { PageHeader } from "@/components/ui/page-header";
 import { requireAuthorization } from "@/server/auth/authorization";
 import { requirePermission } from "@/server/auth/permissions";
@@ -49,7 +48,6 @@ export default async function AdminDashboardPage() {
         title="Administration"
         description="Identity, access, AI providers, privacy, and operational health for InsightKM."
       />
-      <AdminNav />
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         {metrics.map(([label, value, href]) => (
           <Link

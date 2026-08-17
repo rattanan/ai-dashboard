@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { AdminNav } from "@/components/admin/admin-nav";
 import { ProviderTestButton } from "@/components/admin/phase1-forms";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/ui/page-header";
@@ -31,7 +30,6 @@ export default async function LlmProvidersPage() {
           </Link>
         }
       />
-      <AdminNav />
       <section className="grid gap-4 xl:grid-cols-2" aria-label="LLM providers">
         {providers.map((provider) => (
           <article key={provider.id} className="rounded-xl border bg-card p-5">

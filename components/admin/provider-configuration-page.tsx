@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { AdminNav } from "@/components/admin/admin-nav";
 import { LlmProviderForm } from "@/components/admin/phase1-forms";
 import { PageHeader } from "@/components/ui/page-header";
 import { requireAuthorization } from "@/server/auth/authorization";
@@ -37,7 +36,6 @@ export async function ProviderConfigurationPage({
           </Link>
         }
       />
-      <AdminNav />
       <section className="rounded-xl border bg-card p-5 sm:p-6">
         <LlmProviderForm
           provider={
