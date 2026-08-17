@@ -1,4 +1,7 @@
+"use client";
+
 import { cn } from "@/lib/utils";
+import { useWorkspaceLocale } from "@/components/layout/workspace-locale";
 
 export function Field({
   label,
@@ -17,13 +20,15 @@ export function Field({
   children: React.ReactNode;
   className?: string;
 }) {
+  const { t } = useWorkspaceLocale();
+
   return (
     <div className={cn("space-y-1.5", className)}>
       <label
         htmlFor={htmlFor}
         className="block text-sm font-medium text-slate-800"
       >
-        {label}
+        {t(label)}
         {required ? (
           <span className="text-destructive" aria-hidden="true">
             {" "}

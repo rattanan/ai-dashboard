@@ -4,6 +4,12 @@ import path from "node:path";
 import type { Pool } from "pg";
 import type { WorkerEnvironment } from "../../schemas/worker-env.js";
 import { chunkParsedDocument, parseDocument } from "./document-parser.js";
+import {
+  assertEmbeddingCount,
+  embeddingAdapter,
+  inferEmbeddingProviderType,
+} from "../ai/embedding-adapter.js";
+import { fetchAiWithRetry } from "../ai/fetch-with-retry.js";
 
 type IndexJobRow = {
   jobId: string;
@@ -17,6 +23,10 @@ type IndexJobRow = {
   sourceMetadata: Record<string, unknown> | null;
   embeddingModel: string;
   providerBaseUrl: string | null;
+  endpointProviderType: string | null;
+  endpointTimeoutMs: number | null;
+  endpointBatchSize: number | null;
+  endpointMaxRetries: number | null;
   ciphertext: string | null;
   iv: string | null;
   authTag: string | null;
@@ -30,11 +40,16 @@ function decryptProviderKey(row: IndexJobRow, environment: WorkerEnvironment) {
   if (row.keyVersion === environment.CREDENTIAL_KEY_VERSION)
     key = Buffer.from(environment.CREDENTIAL_ENCRYPTION_KEY, "base64");
   else
-    for (const entry of environment.CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS.split(",")) {
+    for (const entry of environment.CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS.split(
+      ",",
+    )) {
       const separator = entry.indexOf(":");
       if (separator < 1 || entry.slice(0, separator).trim() !== row.keyVersion)
         continue;
-      const candidate = Buffer.from(entry.slice(separator + 1).trim(), "base64");
+      const candidate = Buffer.from(
+        entry.slice(separator + 1).trim(),
+        "base64",
+      );
       if (candidate.length === 32) key = candidate;
     }
   if (!key) throw new Error("Provider credential key version is unavailable");
@@ -63,38 +78,34 @@ async function embedBatch(
     model: string;
     apiKey?: string;
     timeoutMs: number;
+    maxRetries: number;
   },
 ) {
-  const ollama = /\/api\/embed\/?$/.test(configuration.url);
-  const response = await fetch(configuration.url, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      ...(configuration.apiKey
-        ? { authorization: `Bearer ${configuration.apiKey}` }
-        : {}),
+  const providerType = inferEmbeddingProviderType(undefined, configuration.url);
+  const adapter = embeddingAdapter(providerType);
+  const response = await fetchAiWithRetry(
+    configuration.url,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(configuration.apiKey
+          ? { authorization: `Bearer ${configuration.apiKey}` }
+          : {}),
+      },
+      body: JSON.stringify(adapter.request(configuration.model, texts)),
     },
-    body: JSON.stringify(
-      ollama
-        ? { model: configuration.model, input: texts }
-        : { model: configuration.model, input: texts },
-    ),
-    signal: AbortSignal.timeout(configuration.timeoutMs),
-  });
+    {
+      timeoutMs: configuration.timeoutMs,
+      maxRetries: configuration.maxRetries,
+    },
+  );
   if (!response.ok)
     throw new Error(`Embedding provider returned HTTP ${response.status}`);
-  const payload = (await response.json()) as {
-    embeddings?: number[][];
-    data?: Array<{ embedding?: number[]; index?: number }>;
-  };
-  const embeddings = ollama
-    ? payload.embeddings
-    : payload.data
-        ?.sort((left, right) => (left.index ?? 0) - (right.index ?? 0))
-        .map((item) => item.embedding ?? []);
-  if (!embeddings || embeddings.length !== texts.length)
-    throw new Error("Embedding provider returned an unexpected batch size");
-  return embeddings;
+  return assertEmbeddingCount(
+    adapter.vectors(await response.json()),
+    texts.length,
+  );
 }
 
 export async function processDocumentIndexJob(
@@ -108,18 +119,32 @@ export async function processDocumentIndexJob(
        v.id AS "documentVersionId", v."storageKey", v."mimeType",
        d.id AS "documentId", d.name AS "documentName", d."organizationId",
        d."sourceMetadata",
-       j."embeddingModel", p."baseUrl" AS "providerBaseUrl",
-       c.ciphertext, c.iv, c."authTag", c."keyVersion"
+       j."embeddingModel", COALESCE(ep."baseUrl", p."baseUrl") AS "providerBaseUrl",
+       ep."providerType"::text AS "endpointProviderType",
+       ep."timeoutMs" AS "endpointTimeoutMs",
+       ep."batchSize" AS "endpointBatchSize",
+       ep."maxRetries" AS "endpointMaxRetries",
+       COALESCE(ec.ciphertext, pc.ciphertext) AS ciphertext,
+       COALESCE(ec.iv, pc.iv) AS iv,
+       COALESCE(ec."authTag", pc."authTag") AS "authTag",
+       COALESCE(ec."keyVersion", pc."keyVersion") AS "keyVersion"
      FROM "DocumentIndexJob" j
      JOIN "DocumentVersion" v ON v.id = j."documentVersionId"
      JOIN "Document" d ON d.id = v."documentId"
+     LEFT JOIN "AiEndpointConfig" ep
+       ON ep."organizationId" = d."organizationId"
+      AND ep.kind = 'EMBEDDING'
+      AND ep.active = true
+      AND ep.model = j."embeddingModel"
+     LEFT JOIN "AiEndpointCredential" ec ON ec."endpointId" = ep.id
      LEFT JOIN "LlmProvider" p
        ON p."organizationId" = d."organizationId"
       AND p.active = true
       AND p."embeddingModel" = j."embeddingModel"
-     LEFT JOIN "LlmProviderCredential" c ON c."providerId" = p.id
+      AND ep.id IS NULL
+     LEFT JOIN "LlmProviderCredential" pc ON pc."providerId" = p.id
      WHERE j.id = $1
-     ORDER BY p."updatedAt" DESC
+     ORDER BY ep."updatedAt" DESC NULLS LAST, p."updatedAt" DESC NULLS LAST
      LIMIT 1`,
     [indexJobId],
   );
@@ -181,16 +206,20 @@ export async function processDocumentIndexJob(
               "updatedAt" = CURRENT_TIMESTAMP WHERE id = $1`,
       [indexJobId, chunks.length],
     );
-    const endpoint = job.providerBaseUrl
-      ? `${job.providerBaseUrl.replace(/\/$/, "")}/embeddings`
+    const endpointBase = job.providerBaseUrl?.replace(/\/$/, "");
+    const endpoint = endpointBase
+      ? job.endpointProviderType === "OLLAMA"
+        ? /\/api\/embed$/.test(endpointBase)
+          ? endpointBase
+          : `${endpointBase}/api/embed`
+        : /\/embeddings$/.test(endpointBase)
+          ? endpointBase
+          : `${endpointBase}/embeddings`
       : environment.EMBEDDING_BASE_URL;
+    const batchSize = job.endpointBatchSize ?? environment.EMBEDDING_BATCH_SIZE;
     const apiKey = decryptProviderKey(job, environment);
     const embeddings: number[][] = [];
-    for (
-      let offset = 0;
-      offset < chunks.length;
-      offset += environment.EMBEDDING_BATCH_SIZE
-    ) {
+    for (let offset = 0; offset < chunks.length; offset += batchSize) {
       const cancellation = await pool.query<{ status: string }>(
         `SELECT status FROM "DocumentIndexJob" WHERE id = $1`,
         [indexJobId],
@@ -213,20 +242,19 @@ export async function processDocumentIndexJob(
       embeddings.push(
         ...(await embedBatch(
           chunks
-            .slice(offset, offset + environment.EMBEDDING_BATCH_SIZE)
+            .slice(offset, offset + batchSize)
             .map((chunk) => chunk.content),
           {
             url: endpoint,
             model: job.embeddingModel,
             apiKey,
-            timeoutMs: environment.EMBEDDING_TIMEOUT_MS,
+            timeoutMs:
+              job.endpointTimeoutMs ?? environment.EMBEDDING_TIMEOUT_MS,
+            maxRetries: job.endpointMaxRetries ?? environment.AI_MAX_RETRIES,
           },
         )),
       );
-      const processed = Math.min(
-        chunks.length,
-        offset + environment.EMBEDDING_BATCH_SIZE,
-      );
+      const processed = Math.min(chunks.length, offset + batchSize);
       await pool.query(
         `UPDATE "DocumentIndexJob" SET "processedChunks" = $2,
                 "progressPercent" = $3, "lastHeartbeatAt" = CURRENT_TIMESTAMP,
@@ -295,6 +323,23 @@ export async function processDocumentIndexJob(
          WHERE id = $1`,
         [indexJobId, chunks.length],
       );
+      await client.query(
+        `UPDATE "KnowledgeSource" s
+           SET status = 'READY', "lastRefreshMessage" = NULL,
+               "updatedAt" = CURRENT_TIMESTAMP
+          FROM "Document" d
+         WHERE d.id = $1 AND s.id = d."sourceId"
+           AND NOT EXISTS (
+             SELECT 1
+               FROM "Document" pending_document
+               JOIN "DocumentVersion" pending_version
+                 ON pending_version.id = pending_document."currentVersionId"
+              WHERE pending_document."sourceId" = s.id
+                AND pending_document.active = true
+                AND pending_version.status <> 'INDEXED'
+           )`,
+        [job.documentId],
+      );
       await client.query("COMMIT");
     } catch (error) {
       await client.query("ROLLBACK");
@@ -336,6 +381,14 @@ export async function processDocumentIndexJob(
              "updatedAt" = CURRENT_TIMESTAMP
        WHERE id = $1`,
       [job.documentVersionId, message],
+    );
+    await pool.query(
+      `UPDATE "KnowledgeSource" s
+          SET status = 'FAILED', "lastRefreshMessage" = $2,
+              "updatedAt" = CURRENT_TIMESTAMP
+         FROM "Document" d
+        WHERE d.id = $1 AND s.id = d."sourceId"`,
+      [job.documentId, message],
     );
     throw new Error(message);
   }

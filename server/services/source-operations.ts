@@ -344,9 +344,42 @@ export async function retryIndexJob(
       "CONFLICT",
       "Only completed, failed, cancelled, or dead-letter jobs can be queued again.",
     );
+  const [endpoint, provider] = await Promise.all([
+    db.aiEndpointConfig.findFirst({
+      where: {
+        organizationId: context.organizationId,
+        kind: "EMBEDDING",
+        active: true,
+      },
+      select: { model: true },
+      orderBy: { updatedAt: "desc" },
+    }),
+    db.llmProvider.findFirst({
+      where: { organizationId: context.organizationId, active: true },
+      select: { embeddingModel: true },
+      orderBy: { updatedAt: "desc" },
+    }),
+  ]);
+  const embeddingModel =
+    endpoint?.model ?? provider?.embeddingModel ?? env().EMBEDDING_MODEL;
+  const targetJob =
+    job.embeddingModel === embeddingModel
+      ? job
+      : ((await db.documentIndexJob.findFirst({
+          where: { documentVersionId: job.documentVersionId, embeddingModel },
+          orderBy: { updatedAt: "desc" },
+        })) ??
+        (await db.documentIndexJob.create({
+          data: { documentVersionId: job.documentVersionId, embeddingModel },
+        })));
+  if (["PROCESSING", "CANCEL_REQUESTED"].includes(targetJob.status))
+    return failure(
+      "CONFLICT",
+      "This document is already being re-indexed with the active model.",
+    );
   await db.$transaction([
     db.documentIndexJob.update({
-      where: { id: job.id },
+      where: { id: targetJob.id },
       data: {
         status: "QUEUED",
         attempt: 0,
@@ -364,14 +397,18 @@ export async function retryIndexJob(
       where: { id: job.documentVersionId },
       data: { status: "QUEUED", errorMessage: null },
     }),
+    db.knowledgeSource.update({
+      where: { id: job.documentVersion.document.source.id },
+      data: { status: "PROCESSING" },
+    }),
   ]);
   try {
-    await enqueueDocumentIndexJob(job.id);
+    await enqueueDocumentIndexJob(targetJob.id);
     return success({ queued: true as const });
   } catch {
     await db.$transaction([
       db.documentIndexJob.update({
-        where: { id: job.id },
+        where: { id: targetJob.id },
         data: {
           status: "DEAD_LETTER",
           failureCategory: "QUEUE",
@@ -386,6 +423,10 @@ export async function retryIndexJob(
           status: "FAILED",
           errorMessage: "Index queue is unavailable.",
         },
+      }),
+      db.knowledgeSource.update({
+        where: { id: job.documentVersion.document.source.id },
+        data: { status: "NEEDS_REINDEX" },
       }),
     ]);
     return failure("INTERNAL_ERROR", "The index job could not be queued.");

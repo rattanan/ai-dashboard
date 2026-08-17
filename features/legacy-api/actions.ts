@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { requireAuthorization } from "@/server/auth/authorization";
 import { requirePermission } from "@/server/auth/permissions";
 import {
@@ -8,12 +9,15 @@ import {
   legacyApiInvocationInputSchema,
   legacyApiRegistrySchema,
 } from "@/schemas/legacy-api";
+import { sourceAssignmentSchema } from "@/schemas/knowledge";
 import {
   deleteLegacyApi,
+  generateLegacyApiToolDefinition,
   saveLegacyApi,
   testLegacyApi,
 } from "@/server/services/legacy-api-service";
 import { failure } from "@/types/result";
+import { updateSourceAssignment } from "@/server/services/unified-source-service";
 
 function json(value: FormDataEntryValue | null, fallback: unknown) {
   const text = String(value ?? "").trim();
@@ -56,10 +60,33 @@ export async function saveLegacyApiAction(_state: unknown, formData: FormData) {
     return failure("VALIDATION_ERROR", "Check the Legacy API definition.", {
       fieldErrors: parsed.error.flatten().fieldErrors,
     });
+  const assignment = sourceAssignmentSchema.safeParse({
+    sourceType: "API_TOOL",
+    sourceId: String(formData.get("legacyApiId") ?? "pending"),
+    scope: formData.get("sourceScope"),
+    botIds: formData.getAll("botIds"),
+    enabled: formData.get("enabled"),
+    priority: formData.get("priority"),
+  });
+  if (!assignment.success)
+    return failure(
+      "VALIDATION_ERROR",
+      "Check the API scope and bot assignments.",
+      {
+        fieldErrors: assignment.error.flatten().fieldErrors,
+      },
+    );
+  await requirePermission(context, "bot.manage");
   const result = await saveLegacyApi(context, parsed.data);
   if (result.ok) {
-    revalidatePath("/workspace/admin/legacy-apis");
+    const assigned = await updateSourceAssignment(context, {
+      ...assignment.data,
+      sourceId: result.data.id,
+    });
+    if (!assigned.ok) return assigned;
+    revalidatePath("/workspace/sources/api-tools");
     revalidatePath("/workspace/admin/bots");
+    revalidatePath("/workspace/sources");
   }
   return result;
 }
@@ -88,6 +115,18 @@ export async function testLegacyApiAction(_state: unknown, formData: FormData) {
   );
 }
 
+export async function generateLegacyApiToolDefinitionAction(
+  _state: unknown,
+  formData: FormData,
+) {
+  const context = await requireAuthorization();
+  await requirePermission(context, "legacy_api.manage");
+  const parsed = legacyApiIdSchema.safeParse({ id: formData.get("id") });
+  if (!parsed.success)
+    return failure("VALIDATION_ERROR", "API tool is required.");
+  return generateLegacyApiToolDefinition(context, parsed.data.id);
+}
+
 export async function deleteLegacyApiAction(
   _state: unknown,
   formData: FormData,
@@ -99,8 +138,9 @@ export async function deleteLegacyApiAction(
     return failure("VALIDATION_ERROR", "Legacy API is required.");
   const result = await deleteLegacyApi(context, parsed.data.id);
   if (result.ok) {
-    revalidatePath("/workspace/admin/legacy-apis");
+    revalidatePath("/workspace/sources/api-tools");
     revalidatePath("/workspace/admin/bots");
+    redirect("/workspace/sources/api-tools");
   }
   return result;
 }

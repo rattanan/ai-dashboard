@@ -272,6 +272,61 @@ enum KnowledgeSourceType {
   FILE
   SHARED_FOLDER
   WEB
+  COPIED_TEXT
+}
+
+enum SourceScope {
+  GLOBAL
+  SELECTED_BOTS
+}
+
+enum EnterpriseSourceStatus {
+  DRAFT
+  TESTING
+  PROCESSING
+  READY
+  FAILED
+  NEEDS_REINDEX
+  DISABLED
+}
+
+enum AiEndpointKind {
+  CHAT
+  EMBEDDING
+}
+
+enum AiEndpointProviderType {
+  OPENAI_COMPATIBLE
+  OLLAMA
+}
+
+enum ChatScope {
+  SMART
+  ALL_ACCESSIBLE
+  SPECIFIC_BOT
+  SPECIFIC_SOURCES
+  DOCUMENTS
+  DATABASES
+  API_TOOLS
+  CONVERSATION_HISTORY
+  BUSINESS_INSIGHT
+}
+
+enum ChatMode {
+  AUTO
+  ASK
+  SEARCH
+  ANALYZE
+  SUMMARIZE
+  GENERATE_REPORT
+  QUERY_LIVE_DATA
+}
+
+enum ToolTraceStatus {
+  SELECTED
+  EXECUTING
+  COMPLETED
+  FAILED
 }
 
 enum SourceRefreshStatus {
@@ -407,6 +462,9 @@ model User {
   memoryConsents            MemoryConsent[]          @relation("MemoryConsentOwner")
   changedMemoryConsents     MemoryConsent[]          @relation("MemoryConsentActor")
   requestedBusinessInsights BusinessInsightJob[]     @relation("BusinessInsightRequester")
+  createdKnowledgeSources   KnowledgeSource[]        @relation("KnowledgeSourceCreator")
+  createdAiEndpoints        AiEndpointConfig[]       @relation("AiEndpointCreator")
+  assignedKnowledgeGaps     KnowledgeGap[]           @relation("KnowledgeGapAssignee")
   createdAt                 DateTime                 @default(now())
   updatedAt                 DateTime                 @updatedAt
 
@@ -487,6 +545,8 @@ model Organization {
   userMemories         UserMemory[]
   memoryConsents       MemoryConsent[]
   businessInsightJobs  BusinessInsightJob[]
+  aiEndpoints          AiEndpointConfig[]
+  knowledgeGaps        KnowledgeGap[]
   createdAt            DateTime               @default(now())
   updatedAt            DateTime               @updatedAt
 }
@@ -766,6 +826,18 @@ model Bot {
   welcomeMessage       String
   suggestedQuestions   Json?
   active               Boolean               @default(false)
+  fallbackMessage      String?
+  apiToolsEnabled      Boolean               @default(true)
+  databaseToolsEnabled Boolean               @default(true)
+  primaryColor         String                @default("#4f46e5")
+  headerColor          String                @default("#111827")
+  chatBubbleColor      String                @default("#eef2ff")
+  fontFamily           String                @default("system")
+  colorMode            String                @default("LIGHT")
+  launcherIcon         String?
+  windowPosition       String                @default("RIGHT")
+  placeholder          String                @default("Ask a question…")
+  brandingEnabled      Boolean               @default(true)
   currentVersion       Int                   @default(1)
   createdById          String
   organization         Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -773,6 +845,7 @@ model Bot {
   versions             BotVersion[]
   access               BotAccess[]
   knowledgeRacks       BotKnowledgeRack[]
+  knowledgeSources     BotKnowledgeSource[]
   dataSources          BotDataSource[]
   providerConfig       BotProviderConfig?
   conversations        Conversation[]
@@ -823,21 +896,24 @@ model BotAccess {
 }
 
 model BotProviderConfig {
-  id              String       @id @default(cuid())
-  botId           String       @unique
+  id              String            @id @default(cuid())
+  botId           String            @unique
   providerId      String?
+  chatEndpointId  String?
   model           String?
-  temperature     Float        @default(0.1)
-  maxTokens       Int          @default(2048)
-  contextSize     Int          @default(12000)
-  citationEnabled Boolean      @default(true)
-  memoryMode      String       @default("CONVERSATION")
-  bot             Bot          @relation(fields: [botId], references: [id], onDelete: Cascade)
-  provider        LlmProvider? @relation(fields: [providerId], references: [id], onDelete: SetNull)
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
+  temperature     Float             @default(0.1)
+  maxTokens       Int               @default(2048)
+  contextSize     Int               @default(12000)
+  citationEnabled Boolean           @default(true)
+  memoryMode      String            @default("CONVERSATION")
+  bot             Bot               @relation(fields: [botId], references: [id], onDelete: Cascade)
+  provider        LlmProvider?      @relation(fields: [providerId], references: [id], onDelete: SetNull)
+  chatEndpoint    AiEndpointConfig? @relation(fields: [chatEndpointId], references: [id], onDelete: SetNull)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
 
   @@index([providerId])
+  @@index([chatEndpointId])
 }
 
 model BotKnowledgeRack {
@@ -854,6 +930,8 @@ model BotKnowledgeRack {
 model BotDataSource {
   botId        String
   dataSourceId String
+  enabled      Boolean    @default(true)
+  priority     Int        @default(100)
   bot          Bot        @relation(fields: [botId], references: [id], onDelete: Cascade)
   dataSource   DataSource @relation(fields: [dataSourceId], references: [id], onDelete: Cascade)
   createdAt    DateTime   @default(now())
@@ -865,6 +943,8 @@ model BotDataSource {
 model BotLegacyApi {
   botId       String
   legacyApiId String
+  enabled     Boolean   @default(true)
+  priority    Int       @default(100)
   bot         Bot       @relation(fields: [botId], references: [id], onDelete: Cascade)
   legacyApi   LegacyApi @relation(fields: [legacyApiId], references: [id], onDelete: Cascade)
   createdAt   DateTime  @default(now())
@@ -916,12 +996,21 @@ model KnowledgeSource {
   rackId             String
   name               String
   type               KnowledgeSourceType       @default(FILE)
+  description        String?
+  status             EnterpriseSourceStatus    @default(DRAFT)
+  scope              SourceScope               @default(SELECTED_BOTS)
+  category           String?
+  tags               String[]                  @default([])
   active             Boolean                   @default(true)
+  createdById        String?
   lastRefreshAt      DateTime?
   lastRefreshStatus  SourceRefreshStatus?
   lastRefreshMessage String?
   rack               KnowledgeRack             @relation(fields: [rackId], references: [id], onDelete: Cascade)
+  createdBy          User?                     @relation("KnowledgeSourceCreator", fields: [createdById], references: [id], onDelete: SetNull)
   documents          Document[]
+  botAssignments     BotKnowledgeSource[]
+  copiedTextConfig   CopiedTextSourceConfig?
   sharedFolderConfig SharedFolderSourceConfig?
   webConfig          WebSourceConfig?
   refreshRuns        SourceRefreshRun[]
@@ -931,6 +1020,32 @@ model KnowledgeSource {
 
   @@unique([rackId, name])
   @@index([rackId, active])
+  @@index([rackId, scope, status])
+  @@index([createdById])
+}
+
+model BotKnowledgeSource {
+  botId     String
+  sourceId  String
+  enabled   Boolean         @default(true)
+  priority  Int             @default(100)
+  bot       Bot             @relation(fields: [botId], references: [id], onDelete: Cascade)
+  source    KnowledgeSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  @@id([botId, sourceId])
+  @@index([sourceId, enabled, priority])
+}
+
+model CopiedTextSourceConfig {
+  id          String          @id @default(cuid())
+  sourceId    String          @unique
+  content     String
+  contentHash String
+  source      KnowledgeSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
 }
 
 model Document {
@@ -1129,6 +1244,7 @@ model Conversation {
   departmentName     String?
   projectName        String?
   title              String
+  isUniversal        Boolean               @default(false)
   lastMessageAt      DateTime              @default(now())
   deletedAt          DateTime?
   organization       Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -1167,23 +1283,61 @@ model ConversationSummary {
 }
 
 model ChatMessage {
-  id             String               @id @default(cuid())
-  conversationId String
-  role           ChatMessageRole
-  content        String
-  inputTokens    Int?
-  outputTokens   Int?
-  latencyMs      Int?
-  errorCode      String?
-  requestId      String?
-  conversation   Conversation         @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  citations      MessageCitation[]
-  feedback       ChatMessageFeedback?
-  createdAt      DateTime             @default(now())
+  id              String                  @id @default(cuid())
+  conversationId  String
+  role            ChatMessageRole
+  content         String
+  inputTokens     Int?
+  outputTokens    Int?
+  latencyMs       Int?
+  errorCode       String?
+  requestId       String?
+  scope           ChatScope?
+  mode            ChatMode?
+  scopeConfig     Json?
+  conversation    Conversation            @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  citations       MessageCitation[]
+  feedback        ChatMessageFeedback?
+  retrievalTraces MessageRetrievalTrace[]
+  toolTraces      ToolExecutionTrace[]
+  createdAt       DateTime                @default(now())
 
   @@index([conversationId, createdAt])
   @@index([role, createdAt])
   @@index([content(ops: raw("gin_trgm_ops"))], type: Gin, map: "ChatMessage_content_trgm_idx")
+}
+
+model MessageRetrievalTrace {
+  id         String      @id @default(cuid())
+  messageId  String
+  sourceType String
+  sourceId   String?
+  chunkId    String?
+  rank       Int
+  score      Float
+  metadata   Json?
+  message    ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  createdAt  DateTime    @default(now())
+
+  @@index([messageId, rank])
+  @@index([sourceType, sourceId])
+}
+
+model ToolExecutionTrace {
+  id           String          @id @default(cuid())
+  messageId    String
+  toolType     String
+  toolId       String?
+  status       ToolTraceStatus
+  maskedInput  Json?
+  maskedOutput Json?
+  durationMs   Int?
+  errorCode    String?
+  message      ChatMessage     @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  createdAt    DateTime        @default(now())
+
+  @@index([messageId, createdAt])
+  @@index([toolType, toolId, status])
 }
 
 model MessageCitation {
@@ -1281,6 +1435,7 @@ model Workspace {
   legacyApis           LegacyApi[]
   legacyApiInvocations LegacyApiInvocation[]
   businessInsightJobs  BusinessInsightJob[]
+  knowledgeGaps        KnowledgeGap[]
   createdAt            DateTime              @default(now())
   updatedAt            DateTime              @updatedAt
 
@@ -1289,27 +1444,30 @@ model Workspace {
 }
 
 model DataSource {
-  id                  String                @id @default(cuid())
+  id                  String                 @id @default(cuid())
   workspaceId         String
   name                String
+  description         String?
   type                DataSourceType
-  status              DataSourceStatus      @default(DRAFT)
+  status              DataSourceStatus       @default(DRAFT)
+  sourceStatus        EnterpriseSourceStatus @default(DRAFT)
+  sourceScope         SourceScope            @default(SELECTED_BOTS)
   host                String?
   port                Int?
   databaseName        String?
   username            String?
-  sslEnabled          Boolean               @default(false)
+  sslEnabled          Boolean                @default(false)
   connectionOptions   Json?
   lastTestedAt        DateTime?
   lastConnectedAt     DateTime?
   lastDiscoveredAt    DateTime?
-  sampleDataEnabled   Boolean               @default(false)
-  metadataVersion     Int                   @default(0)
+  sampleDataEnabled   Boolean                @default(false)
+  metadataVersion     Int                    @default(0)
   metadataFingerprint String?
   lastMetadataDiff    Json?
   createdById         String
-  workspace           Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  createdBy           User                  @relation("DataSourceCreator", fields: [createdById], references: [id])
+  workspace           Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy           User                   @relation("DataSourceCreator", fields: [createdById], references: [id])
   credential          DataSourceCredential?
   file                DataSourceFile?
   schemas             DataSourceSchema[]
@@ -1321,10 +1479,11 @@ model DataSource {
   bots                BotDataSource[]
   metadataRefreshes   MetadataRefreshRun[]
   databaseQueries     DatabaseQuery[]
-  createdAt           DateTime              @default(now())
-  updatedAt           DateTime              @updatedAt
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
 
   @@index([workspaceId, status])
+  @@index([workspaceId, sourceScope, sourceStatus])
 }
 
 model DataSourceCredential {
@@ -1449,42 +1608,112 @@ model MetadataRefreshRun {
 }
 
 model LegacyApi {
-  id                   String                @id @default(cuid())
+  id                   String                 @id @default(cuid())
   organizationId       String
   workspaceId          String
   name                 String
   description          String
   baseUrl              String
   endpointPath         String
-  method               LegacyApiHttpMethod   @default(GET)
-  readOnlyConfirmed    Boolean               @default(false)
-  enabled              Boolean               @default(true)
+  method               LegacyApiHttpMethod    @default(GET)
+  readOnlyConfirmed    Boolean                @default(false)
+  enabled              Boolean                @default(true)
+  sourceStatus         EnterpriseSourceStatus @default(DRAFT)
+  sourceScope          SourceScope            @default(SELECTED_BOTS)
   allowedDomains       String[]
-  timeoutMs            Int                   @default(10000)
-  maxResponseBytes     Int                   @default(1048576)
-  maxRedirects         Int                   @default(2)
+  timeoutMs            Int                    @default(10000)
+  maxResponseBytes     Int                    @default(1048576)
+  maxRedirects         Int                    @default(2)
   requestHeaders       Json?
   parameterDefinitions Json
   bodyTemplate         Json?
   responseSchema       Json
   responseMapping      Json?
-  authType             LegacyApiAuthType     @default(NONE)
+  authType             LegacyApiAuthType      @default(NONE)
   lastTestStatus       String?
   lastTestMessage      String?
   lastTestLatencyMs    Int?
   lastTestedAt         DateTime?
   createdById          String
-  organization         Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  workspace            Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  createdBy            User                  @relation("LegacyApiCreator", fields: [createdById], references: [id])
+  organization         Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workspace            Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy            User                   @relation("LegacyApiCreator", fields: [createdById], references: [id])
   credential           LegacyApiCredential?
   bots                 BotLegacyApi[]
   invocations          LegacyApiInvocation[]
-  createdAt            DateTime              @default(now())
-  updatedAt            DateTime              @updatedAt
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
 
   @@unique([workspaceId, name])
   @@index([organizationId, enabled])
+  @@index([workspaceId, sourceScope, sourceStatus])
+}
+
+model AiEndpointConfig {
+  id                    String                 @id @default(cuid())
+  organizationId        String
+  name                  String
+  kind                  AiEndpointKind
+  providerType          AiEndpointProviderType @default(OPENAI_COMPATIBLE)
+  baseUrl               String
+  model                 String
+  temperature           Float?
+  maxTokens             Int?
+  batchSize             Int?
+  vectorDimension       Int?
+  timeoutMs             Int                    @default(30000)
+  maxRetries            Int                    @default(2)
+  active                Boolean                @default(false)
+  lastHealthStatus      String                 @default("UNKNOWN")
+  lastHealthMessage     String?
+  lastLatencyMs         Int?
+  lastDetectedDimension Int?
+  lastTestedAt          DateTime?
+  createdById           String
+  organization          Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy             User                   @relation("AiEndpointCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  credential            AiEndpointCredential?
+  botConfigurations     BotProviderConfig[]
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+
+  @@unique([organizationId, kind, name])
+  @@index([organizationId, kind, active])
+}
+
+model AiEndpointCredential {
+  id         String           @id @default(cuid())
+  endpointId String           @unique
+  ciphertext String
+  iv         String
+  authTag    String
+  keyVersion String
+  endpoint   AiEndpointConfig @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+}
+
+model KnowledgeGap {
+  id                   String       @id @default(cuid())
+  organizationId       String
+  workspaceId          String
+  title                String
+  question             String
+  status               String       @default("OPEN")
+  priority             String       @default("MEDIUM")
+  assigneeId           String?
+  evidenceMessageIds   String[]
+  resolutionSourceType String?
+  resolutionSourceId   String?
+  resolvedAt           DateTime?
+  organization         Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workspace            Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  assignee             User?        @relation("KnowledgeGapAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+
+  @@index([workspaceId, status, priority])
+  @@index([assigneeId, status])
 }
 
 model LegacyApiCredential {

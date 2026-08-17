@@ -41,7 +41,20 @@ type BotValue = {
   welcomeMessage: string;
   suggestedQuestions: string[];
   active: boolean;
+  fallbackMessage: string | null;
+  apiToolsEnabled: boolean;
+  databaseToolsEnabled: boolean;
+  primaryColor: string;
+  headerColor: string;
+  chatBubbleColor: string;
+  fontFamily: "system" | "sans" | "serif" | "mono";
+  colorMode: "LIGHT" | "DARK" | "AUTO";
+  launcherIcon: string | null;
+  windowPosition: "LEFT" | "RIGHT";
+  placeholder: string;
+  brandingEnabled: boolean;
   providerId: string | null;
+  chatEndpointId: string | null;
   model: string | null;
   temperature: number;
   maxTokens: number;
@@ -61,6 +74,7 @@ export function BotConfigurationForm({
   roles,
   users,
   providers,
+  chatEndpoints,
   dataSources,
   legacyApis,
 }: {
@@ -69,6 +83,7 @@ export function BotConfigurationForm({
   roles: Choice[];
   users: Choice[];
   providers: Choice[];
+  chatEndpoints: Choice[];
   dataSources: Choice[];
   legacyApis: Choice[];
 }) {
@@ -161,6 +176,25 @@ export function BotConfigurationForm({
           {providers.map((provider) => (
             <option key={provider.id} value={provider.id}>
               {provider.name}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <Field
+        label="Chat AI endpoint"
+        htmlFor={`bot-chat-endpoint-${bot?.id ?? "new"}`}
+        hint="Optional per-bot override; otherwise the active Chat endpoint is used."
+      >
+        <select
+          id={`bot-chat-endpoint-${bot?.id ?? "new"}`}
+          name="chatEndpointId"
+          defaultValue={bot?.chatEndpointId ?? ""}
+          className="min-h-11 w-full rounded-lg border bg-white px-3"
+        >
+          <option value="">Active organization Chat endpoint</option>
+          {chatEndpoints.map((endpoint) => (
+            <option key={endpoint.id} value={endpoint.id}>
+              {endpoint.name}
             </option>
           ))}
         </select>
@@ -318,6 +352,124 @@ export function BotConfigurationForm({
           ))}
         </select>
       </Field>
+      <Field
+        label="Fallback message"
+        htmlFor={`bot-fallback-${bot?.id ?? "new"}`}
+      >
+        <textarea
+          id={`bot-fallback-${bot?.id ?? "new"}`}
+          name="fallbackMessage"
+          defaultValue={bot?.fallbackMessage ?? ""}
+          className="min-h-24 w-full rounded-lg border bg-white p-3 text-sm"
+          placeholder="Shown when the bot cannot produce a grounded answer."
+        />
+      </Field>
+      <Field
+        label="Composer placeholder"
+        htmlFor={`bot-placeholder-${bot?.id ?? "new"}`}
+      >
+        <Input
+          id={`bot-placeholder-${bot?.id ?? "new"}`}
+          name="placeholder"
+          defaultValue={bot?.placeholder ?? "Ask a question…"}
+          required
+        />
+      </Field>
+      <div className="grid grid-cols-3 gap-3 lg:col-span-2">
+        {[
+          ["primaryColor", "Primary", bot?.primaryColor ?? "#4f46e5"],
+          ["headerColor", "Header", bot?.headerColor ?? "#111827"],
+          ["chatBubbleColor", "Bubble", bot?.chatBubbleColor ?? "#eef2ff"],
+        ].map(([name, label, value]) => (
+          <Field
+            key={name}
+            label={label}
+            htmlFor={`${name}-${bot?.id ?? "new"}`}
+          >
+            <Input
+              id={`${name}-${bot?.id ?? "new"}`}
+              name={name}
+              type="color"
+              defaultValue={value}
+              className="min-h-11"
+            />
+          </Field>
+        ))}
+      </div>
+      <Field label="Font" htmlFor={`bot-font-${bot?.id ?? "new"}`}>
+        <select
+          id={`bot-font-${bot?.id ?? "new"}`}
+          name="fontFamily"
+          defaultValue={bot?.fontFamily ?? "system"}
+          className="min-h-11 w-full rounded-lg border bg-white px-3"
+        >
+          <option value="system">System</option>
+          <option value="sans">Sans</option>
+          <option value="serif">Serif</option>
+          <option value="mono">Mono</option>
+        </select>
+      </Field>
+      <Field label="Color mode" htmlFor={`bot-color-mode-${bot?.id ?? "new"}`}>
+        <select
+          id={`bot-color-mode-${bot?.id ?? "new"}`}
+          name="colorMode"
+          defaultValue={bot?.colorMode ?? "LIGHT"}
+          className="min-h-11 w-full rounded-lg border bg-white px-3"
+        >
+          <option value="LIGHT">Light</option>
+          <option value="DARK">Dark</option>
+          <option value="AUTO">Auto</option>
+        </select>
+      </Field>
+      <Field
+        label="Window position"
+        htmlFor={`bot-position-${bot?.id ?? "new"}`}
+      >
+        <select
+          id={`bot-position-${bot?.id ?? "new"}`}
+          name="windowPosition"
+          defaultValue={bot?.windowPosition ?? "RIGHT"}
+          className="min-h-11 w-full rounded-lg border bg-white px-3"
+        >
+          <option value="RIGHT">Right</option>
+          <option value="LEFT">Left</option>
+        </select>
+      </Field>
+      <Field
+        label="Launcher icon URL"
+        htmlFor={`bot-launcher-${bot?.id ?? "new"}`}
+      >
+        <Input
+          id={`bot-launcher-${bot?.id ?? "new"}`}
+          name="launcherIcon"
+          type="url"
+          defaultValue={bot?.launcherIcon ?? ""}
+        />
+      </Field>
+      <label className="flex min-h-11 items-center gap-2 text-sm">
+        <input
+          name="apiToolsEnabled"
+          type="checkbox"
+          defaultChecked={bot?.apiToolsEnabled ?? true}
+        />{" "}
+        API tools enabled
+      </label>
+      <label className="flex min-h-11 items-center gap-2 text-sm">
+        <input
+          name="databaseToolsEnabled"
+          type="checkbox"
+          defaultChecked={bot?.databaseToolsEnabled ?? true}
+        />{" "}
+        Database tools enabled
+      </label>
+      <label className="flex min-h-11 items-center gap-2 text-sm">
+        <input
+          name="brandingEnabled"
+          type="checkbox"
+          defaultChecked={bot?.brandingEnabled ?? true}
+        />{" "}
+        InsightKM branding enabled
+      </label>
       <label className="flex min-h-11 items-center gap-2 text-sm">
         <input
           name="citationEnabled"

@@ -1,12 +1,24 @@
 import { db } from "@/server/db";
 import { env } from "@/schemas/env";
 import { getProviderSecret } from "@/server/services/llm-provider-config";
+import {
+  activeAiEndpoint,
+  getAiEndpointSecret,
+  resolvedAiEndpointUrl,
+} from "@/server/services/ai-endpoint-service";
+import {
+  assertEmbeddingCount,
+  embeddingAdapter,
+  inferEmbeddingProviderType,
+} from "@/packages/ai/embedding-adapter";
+import { fetchAiWithRetry } from "@/packages/ai/fetch-with-retry";
 
 export async function embedKnowledgeQuery(
   organizationId: string,
   input: string,
   providerId?: string | null,
 ) {
+  const endpoint = await activeAiEndpoint(organizationId, "EMBEDDING");
   const provider = providerId
     ? await db.llmProvider.findFirst({
         where: { id: providerId, organizationId },
@@ -16,31 +28,42 @@ export async function embedKnowledgeQuery(
         orderBy: { updatedAt: "desc" },
       });
   const configuration = env();
-  const url = provider
-    ? `${provider.baseUrl.replace(/\/$/, "")}/embeddings`
-    : configuration.EMBEDDING_BASE_URL;
-  const model = provider?.embeddingModel ?? configuration.EMBEDDING_MODEL;
-  const apiKey = provider ? await getProviderSecret(provider.id) : undefined;
-  const ollama = /\/api\/embed\/?$/.test(url);
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}),
+  const url = endpoint
+    ? resolvedAiEndpointUrl(endpoint)
+    : provider
+      ? `${provider.baseUrl.replace(/\/$/, "")}/embeddings`
+      : configuration.EMBEDDING_BASE_URL;
+  const model =
+    endpoint?.model ??
+    provider?.embeddingModel ??
+    configuration.EMBEDDING_MODEL;
+  const apiKey = endpoint
+    ? await getAiEndpointSecret(endpoint.id)
+    : provider
+      ? await getProviderSecret(provider.id)
+      : undefined;
+  const providerType = inferEmbeddingProviderType(endpoint?.providerType, url);
+  const adapter = embeddingAdapter(providerType);
+  const response = await fetchAiWithRetry(
+    url,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}),
+      },
+      body: JSON.stringify(adapter.request(model, input)),
     },
-    body: JSON.stringify({ model, input }),
-    signal: AbortSignal.timeout(configuration.EMBEDDING_TIMEOUT_MS),
-  });
+    {
+      timeoutMs: endpoint?.timeoutMs ?? configuration.EMBEDDING_TIMEOUT_MS,
+      maxRetries: endpoint?.maxRetries ?? configuration.AI_MAX_RETRIES,
+    },
+  );
   if (!response.ok)
     throw new Error(`Embedding provider returned HTTP ${response.status}`);
-  const payload = (await response.json()) as {
-    embeddings?: number[][];
-    data?: Array<{ embedding?: number[] }>;
-  };
-  const embedding = ollama
-    ? payload.embeddings?.[0]
-    : payload.data?.[0]?.embedding;
-  if (!embedding?.length || embedding.some((value) => !Number.isFinite(value)))
-    throw new Error("Embedding provider returned an invalid vector");
+  const embedding = assertEmbeddingCount(
+    adapter.vectors(await response.json()),
+    1,
+  )[0];
   return { embedding, model };
 }

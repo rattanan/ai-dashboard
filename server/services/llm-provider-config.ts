@@ -6,6 +6,10 @@ import {
   parseEncryptionKeyRing,
 } from "@/server/services/encryption";
 import { ResilientAIProvider } from "@/server/ai/resilient-provider";
+import {
+  activeAiEndpoint,
+  getAiEndpointSecret,
+} from "@/server/services/ai-endpoint-service";
 
 export function llmProviderEncryption() {
   const configuration = env();
@@ -30,7 +34,8 @@ export async function getProviderSecret(providerId: string) {
 }
 
 export async function createOrganizationAIProvider(organizationId: string) {
-  const [primary, fallback] = await Promise.all([
+  const [chatEndpoint, primary, fallback] = await Promise.all([
+    activeAiEndpoint(organizationId, "CHAT"),
     db.llmProvider.findFirst({
       where: { organizationId, active: true },
       include: { credential: true },
@@ -42,6 +47,28 @@ export async function createOrganizationAIProvider(organizationId: string) {
       orderBy: { updatedAt: "desc" },
     }),
   ]);
+  if (chatEndpoint) {
+    const configuration = env();
+    return new ResilientAIProvider(
+      createAIProvider({
+        provider: "openai-compatible",
+        baseUrl: chatEndpoint.baseUrl.replace(/\/chat\/completions\/?$/, ""),
+        apiKey: await getAiEndpointSecret(chatEndpoint.id),
+        model: chatEndpoint.model,
+        timeoutMs: chatEndpoint.timeoutMs,
+        inactivityTimeoutMs: chatEndpoint.timeoutMs,
+        maxRetries: chatEndpoint.maxRetries,
+        temperature: chatEndpoint.temperature ?? 0.1,
+        supportsJsonSchema: true,
+      }),
+      undefined,
+      {
+        key: `${organizationId}:chat-endpoint:${chatEndpoint.id}`,
+        failureThreshold: configuration.AI_CIRCUIT_FAILURE_THRESHOLD,
+        cooldownMs: configuration.AI_CIRCUIT_COOLDOWN_MS,
+      },
+    );
+  }
   if (!primary) return createAIProvider();
   const configuration = env();
   const build = (provider: NonNullable<typeof primary>) =>

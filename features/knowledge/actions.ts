@@ -12,6 +12,7 @@ import {
 } from "@/schemas/knowledge";
 import { retryDocumentIndex } from "@/server/services/knowledge-service";
 import { failure, success } from "@/types/result";
+import { authorizeResource } from "@/server/auth/resource-authorization";
 
 function botFormValues(formData: FormData) {
   return {
@@ -43,6 +44,7 @@ export async function saveBotAction(_state: unknown, formData: FormData) {
     roleCount,
     userCount,
     providerCount,
+    chatEndpointCount,
   ] = await Promise.all([
     db.knowledgeRack.count({
       where: {
@@ -87,6 +89,15 @@ export async function saveBotAction(_state: unknown, formData: FormData) {
           },
         })
       : Promise.resolve(1),
+    parsed.data.chatEndpointId
+      ? db.aiEndpointConfig.count({
+          where: {
+            id: parsed.data.chatEndpointId,
+            organizationId: context.organizationId,
+            kind: "CHAT",
+          },
+        })
+      : Promise.resolve(1),
   ]);
   if (
     rackCount !== new Set(parsed.data.rackIds).size ||
@@ -94,11 +105,28 @@ export async function saveBotAction(_state: unknown, formData: FormData) {
     legacyApiCount !== new Set(parsed.data.legacyApiIds).size ||
     roleCount !== new Set(parsed.data.roleIds).size ||
     userCount !== new Set(parsed.data.userIds).size ||
-    providerCount !== 1
+    providerCount !== 1 ||
+    chatEndpointCount !== 1
   )
     return failure(
       "VALIDATION_ERROR",
       "Bot scope contains an invalid resource.",
+    );
+  const assignmentDecisions = await Promise.all([
+    ...parsed.data.rackIds.map((id) =>
+      authorizeResource(context, "KNOWLEDGE_RACK", id, "MANAGE"),
+    ),
+    ...parsed.data.dataSourceIds.map((id) =>
+      authorizeResource(context, "DATA_SOURCE", id, "MANAGE"),
+    ),
+    ...parsed.data.legacyApiIds.map((id) =>
+      authorizeResource(context, "LEGACY_API", id, "MANAGE"),
+    ),
+  ]);
+  if (assignmentDecisions.some(({ allowed }) => !allowed))
+    return failure(
+      "FORBIDDEN",
+      "You cannot assign one or more selected sources to this bot.",
     );
   try {
     const saved = await db.$transaction(async (tx) => {
@@ -120,6 +148,18 @@ export async function saveBotAction(_state: unknown, formData: FormData) {
         welcomeMessage: parsed.data.welcomeMessage,
         suggestedQuestions: parsed.data.suggestedQuestions,
         active: parsed.data.active,
+        fallbackMessage: parsed.data.fallbackMessage,
+        apiToolsEnabled: parsed.data.apiToolsEnabled,
+        databaseToolsEnabled: parsed.data.databaseToolsEnabled,
+        primaryColor: parsed.data.primaryColor,
+        headerColor: parsed.data.headerColor,
+        chatBubbleColor: parsed.data.chatBubbleColor,
+        fontFamily: parsed.data.fontFamily,
+        colorMode: parsed.data.colorMode,
+        launcherIcon: parsed.data.launcherIcon,
+        windowPosition: parsed.data.windowPosition,
+        placeholder: parsed.data.placeholder,
+        brandingEnabled: parsed.data.brandingEnabled,
         currentVersion: version,
       };
       const bot = existing
@@ -133,6 +173,7 @@ export async function saveBotAction(_state: unknown, formData: FormData) {
           });
       const providerConfiguration = {
         providerId: parsed.data.providerId ?? null,
+        chatEndpointId: parsed.data.chatEndpointId ?? null,
         model: parsed.data.model || null,
         temperature: parsed.data.temperature,
         maxTokens: parsed.data.maxTokens,
@@ -151,6 +192,22 @@ export async function saveBotAction(_state: unknown, formData: FormData) {
           data: parsed.data.rackIds.map((rackId) => ({
             botId: bot.id,
             rackId,
+          })),
+        });
+      const selectedSources = parsed.data.rackIds.length
+        ? await tx.knowledgeSource.findMany({
+            where: { rackId: { in: parsed.data.rackIds } },
+            select: { id: true },
+          })
+        : [];
+      await tx.botKnowledgeSource.deleteMany({ where: { botId: bot.id } });
+      if (selectedSources.length)
+        await tx.botKnowledgeSource.createMany({
+          data: selectedSources.map((source, index) => ({
+            botId: bot.id,
+            sourceId: source.id,
+            enabled: true,
+            priority: 100 + index,
           })),
         });
       await tx.botDataSource.deleteMany({ where: { botId: bot.id } });

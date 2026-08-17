@@ -10,6 +10,7 @@ type RetrievalRow = {
   contentHash: string;
   metadata: Record<string, string | number> | null;
   documentId: string;
+  sourceId: string;
   documentName: string;
   mimeType: string;
   vectorScore: number;
@@ -58,7 +59,11 @@ export async function retrieveBotContext(
   context: AuthorizationContext,
   botId: string,
   query: string,
-  options?: { reranker?: KnowledgeReranker },
+  options?: {
+    reranker?: KnowledgeReranker;
+    allAccessible?: boolean;
+    sourceIds?: string[];
+  },
 ) {
   await requireBotUse(context, botId);
   const bot = await db.bot.findFirst({
@@ -66,10 +71,18 @@ export async function retrieveBotContext(
     include: { providerConfig: true },
   });
   if (!bot) return [];
-  const rackAssignments = await db.botKnowledgeRack.findMany({
-    where: { botId },
-    select: { rackId: true },
-  });
+  const rackAssignments =
+    options?.allAccessible || options?.sourceIds?.length
+      ? await db.knowledgeRack
+          .findMany({
+            where: { organizationId: context.organizationId, active: true },
+            select: { id: true },
+          })
+          .then((items) => items.map((item) => ({ rackId: item.id })))
+      : await db.botKnowledgeRack.findMany({
+          where: { botId },
+          select: { rackId: true },
+        });
   const rackDecisions = await Promise.all(
     rackAssignments.map(async ({ rackId }) => ({
       rackId,
@@ -94,16 +107,31 @@ export async function retrieveBotContext(
   } catch {
     // Keyword retrieval remains available during an embedding-provider outage.
   }
-  const aclSql = `
+  const vectorAclSql = `
     FROM "DocumentChunk" c
     JOIN "DocumentVersion" v ON v.id = c."documentVersionId"
     JOIN "Document" d ON d."currentVersionId" = v.id AND d.active = true
     JOIN "KnowledgeSource" s ON s.id = d."sourceId" AND s.active = true
     JOIN "KnowledgeRack" r ON r.id = s."rackId" AND r.active = true
-    JOIN "BotKnowledgeRack" br ON br."rackId" = r.id AND br."botId" = $1
     WHERE d."organizationId" = $2
       AND v.status = 'INDEXED'
-      AND r.id = ANY($3::text[])`;
+      AND s.status = 'READY'
+      AND r.id = ANY($3::text[])
+      AND ($7::boolean OR s.scope = 'GLOBAL' OR EXISTS (
+        SELECT 1 FROM "BotKnowledgeSource" bks
+        WHERE bks."sourceId" = s.id AND bks."botId" = $1 AND bks.enabled = true
+      ) OR EXISTS (
+        SELECT 1 FROM "BotKnowledgeRack" br
+        WHERE br."rackId" = r.id AND br."botId" = $1
+          AND NOT EXISTS (
+            SELECT 1 FROM "BotKnowledgeSource" override
+            WHERE override."sourceId" = s.id AND override."botId" = $1
+          )
+      ))
+      AND (cardinality($8::text[]) = 0 OR s.id = ANY($8::text[]))`;
+  const keywordAclSql = vectorAclSql
+    .replaceAll("$7", "$5")
+    .replaceAll("$8", "$6");
   // pgvector HNSW supports up to 2,000 dimensions. Larger embeddings retain
   // the generic vector expression and therefore use the exact-scan path.
   const indexedDimensions = new Set([384, 768, 1024, 1536]);
@@ -115,10 +143,11 @@ export async function retrieveBotContext(
     ? await db.$queryRawUnsafe<RetrievalRow[]>(
         `SELECT c.id AS "chunkId", c.content, c."contentHash", c.metadata,
                 d.id AS "documentId", d.name AS "documentName", d."mimeType",
+                s.id AS "sourceId",
                 CASE WHEN c."embeddingDimension" = $5
                      THEN 1 - (${vectorDistance}) ELSE 0 END AS "vectorScore",
                 ts_rank_cd(to_tsvector('simple', c.content), plainto_tsquery('simple', $6)) AS "keywordScore"
-         ${aclSql}
+         ${vectorAclSql}
          ORDER BY (CASE WHEN c."embeddingDimension" = $5
                         THEN 1 - (${vectorDistance}) ELSE 0 END) DESC,
                   "keywordScore" DESC
@@ -129,19 +158,24 @@ export async function retrieveBotContext(
         `[${vector.join(",")}]`,
         vector.length,
         query,
+        Boolean(options?.allAccessible),
+        options?.sourceIds ?? [],
       )
     : await db.$queryRawUnsafe<RetrievalRow[]>(
         `SELECT c.id AS "chunkId", c.content, c."contentHash", c.metadata,
                 d.id AS "documentId", d.name AS "documentName", d."mimeType",
+                s.id AS "sourceId",
                 0::float AS "vectorScore",
                 ts_rank_cd(to_tsvector('simple', c.content), plainto_tsquery('simple', $4)) AS "keywordScore"
-         ${aclSql}
+         ${keywordAclSql}
          ORDER BY "keywordScore" DESC, c."createdAt" DESC
          LIMIT 80`,
         botId,
         context.organizationId,
         authorizedRackIds,
         query,
+        Boolean(options?.allAccessible),
+        options?.sourceIds ?? [],
       );
   const seen = new Set<string>();
   const candidates = rows

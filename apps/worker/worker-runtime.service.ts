@@ -10,6 +10,7 @@ import type { Redis } from "ioredis";
 import { Pool } from "pg";
 import {
   createRedisConnection,
+  BUSINESS_INSIGHT_JOB,
   processSystemHealthJob,
   SYSTEM_HEALTH_JOB,
   SYSTEM_QUEUE,
@@ -23,6 +24,7 @@ import { processDocumentIndexJob } from "../../packages/knowledge/index-document
 import { processSourceRefreshJob } from "../../packages/knowledge/refresh-source.js";
 import { recoverStaleOperations } from "../../packages/knowledge/recover-operations.js";
 import { enforceRetentionPolicies } from "../../packages/operations/retention.js";
+import { processBusinessInsightQueueJob } from "../../packages/insights/process-business-insight.js";
 import { workerEnv } from "../../schemas/worker-env.js";
 
 @Injectable()
@@ -154,6 +156,25 @@ export class WorkerRuntimeService implements OnModuleInit, OnModuleDestroy {
               );
             },
           );
+        }
+        if (job.name === BUSINESS_INSIGHT_JOB) {
+          const insightId = (job.data as { businessInsightJobId: string })
+            .businessInsightJobId;
+          try {
+            return await processBusinessInsightQueueJob(
+              insightId,
+              this.database!,
+            );
+          } catch (error) {
+            await this.database!.query(
+              `UPDATE "BusinessInsightJob"
+                  SET status = 'FAILED', "errorCode" = 'WORKER_FAILED',
+                      "completedAt" = CURRENT_TIMESTAMP,
+                      "updatedAt" = CURRENT_TIMESTAMP WHERE id = $1`,
+              [insightId],
+            );
+            throw error;
+          }
         }
         throw new Error(`Unsupported system job: ${job.name}`);
       },

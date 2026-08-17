@@ -17,7 +17,23 @@ export const botConfigurationSchema = z.object({
   welcomeMessage: z.string().trim().min(2).max(1_000),
   suggestedQuestions: z.array(z.string().trim().min(2).max(300)).max(8),
   active: z.preprocess((value) => value === "on", z.boolean()),
+  fallbackMessage: z.string().trim().max(1_000).optional(),
+  apiToolsEnabled: z.preprocess((value) => value === "on", z.boolean()),
+  databaseToolsEnabled: z.preprocess((value) => value === "on", z.boolean()),
+  primaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+  headerColor: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+  chatBubbleColor: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+  fontFamily: z.enum(["system", "sans", "serif", "mono"]),
+  colorMode: z.enum(["LIGHT", "DARK", "AUTO"]),
+  launcherIcon: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.string().url().optional(),
+  ),
+  windowPosition: z.enum(["LEFT", "RIGHT"]),
+  placeholder: z.string().trim().min(2).max(200),
+  brandingEnabled: z.preprocess((value) => value === "on", z.boolean()),
   providerId: optionalId,
+  chatEndpointId: optionalId,
   model: z.string().trim().max(200).optional(),
   temperature: z.coerce.number().min(0).max(2),
   maxTokens: z.coerce.number().int().min(128).max(32_000),
@@ -71,6 +87,39 @@ export const webSourceSchema = z.object({
   ...scheduleFields,
 });
 
+export const copiedTextSourceSchema = z.object({
+  sourceId: optionalId,
+  rackId: z.string().min(1),
+  name: z.string().trim().min(2).max(120),
+  description: z.string().trim().max(2_000).optional(),
+  content: z.string().trim().min(20).max(1_000_000),
+  category: z.string().trim().max(120).optional(),
+  tags: z.array(z.string().trim().min(1).max(80)).max(30),
+  scope: z.enum(["GLOBAL", "SELECTED_BOTS"]),
+  botIds: z.array(z.string().min(1)).max(200),
+});
+
+export const sourceAssignmentSchema = z
+  .object({
+    sourceType: z.enum(["KNOWLEDGE", "DATABASE", "API_TOOL"]),
+    sourceId: z.string().min(1),
+    scope: z.enum(["GLOBAL", "SELECTED_BOTS"]),
+    botIds: z.array(z.string().min(1)).max(200),
+    enabled: z.preprocess(
+      (value) => value === true || value === "true" || value === "on",
+      z.boolean(),
+    ),
+    priority: z.coerce.number().int().min(1).max(1000),
+  })
+  .superRefine((value, context) => {
+    if (value.scope === "SELECTED_BOTS" && !value.botIds.length)
+      context.addIssue({
+        code: "custom",
+        path: ["botIds"],
+        message: "Select at least one bot",
+      });
+  });
+
 export const indexJobFilterSchema = z.object({
   status: z
     .enum([
@@ -92,6 +141,48 @@ export const chatRequestSchema = z.object({
   projectId: z.string().min(1).optional(),
   message: z.string().trim().min(1).max(8_000),
 });
+
+export const universalChatRequestSchema = z
+  .object({
+    botId: z.string().min(1).optional(),
+    conversationId: z.string().min(1).optional(),
+    message: z.string().trim().min(1).max(8_000),
+    scope: z.enum([
+      "SMART",
+      "ALL_ACCESSIBLE",
+      "SPECIFIC_BOT",
+      "SPECIFIC_SOURCES",
+      "DOCUMENTS",
+      "DATABASES",
+      "API_TOOLS",
+      "CONVERSATION_HISTORY",
+      "BUSINESS_INSIGHT",
+    ]),
+    mode: z.enum([
+      "AUTO",
+      "ASK",
+      "SEARCH",
+      "ANALYZE",
+      "SUMMARIZE",
+      "GENERATE_REPORT",
+      "QUERY_LIVE_DATA",
+    ]),
+    sourceIds: z.array(z.string().min(1)).max(100).default([]),
+  })
+  .superRefine((value, context) => {
+    if (value.scope === "SPECIFIC_BOT" && !value.botId)
+      context.addIssue({
+        code: "custom",
+        path: ["botId"],
+        message: "Select a bot for Specific Bot scope",
+      });
+    if (value.scope === "SPECIFIC_SOURCES" && !value.sourceIds.length)
+      context.addIssue({
+        code: "custom",
+        path: ["sourceIds"],
+        message: "Select at least one source",
+      });
+  });
 
 export const conversationMutationSchema = z.object({
   conversationId: z.string().min(1),

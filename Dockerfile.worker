@@ -8,6 +8,8 @@ WORKDIR /app
 COPY --from=dependencies /app/node_modules ./node_modules
 COPY package.json tsconfig.json tsconfig.worker.json ./
 COPY apps/worker ./apps/worker
+COPY packages/ai ./packages/ai
+COPY packages/insights ./packages/insights
 COPY packages/queue ./packages/queue
 COPY packages/knowledge ./packages/knowledge
 COPY packages/operations ./packages/operations

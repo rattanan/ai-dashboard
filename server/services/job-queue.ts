@@ -2,6 +2,7 @@ import { Queue } from "bullmq";
 import { env } from "@/schemas/env";
 import {
   createRedisConnection,
+  BUSINESS_INSIGHT_JOB,
   DOCUMENT_INDEX_JOB,
   SOURCE_REFRESH_JOB,
   SYSTEM_QUEUE,
@@ -59,6 +60,32 @@ export async function enqueueSourceRefreshJob(input: {
       removeOnFail: { age: 604_800, count: 2_000 },
     });
     return String(job.id);
+  } finally {
+    await queue.close();
+    connection.disconnect();
+  }
+}
+
+export async function enqueueBusinessInsightJob(businessInsightJobId: string) {
+  const configuration = env();
+  const connection = createRedisConnection(configuration.REDIS_URL);
+  const queue = new Queue(SYSTEM_QUEUE, {
+    connection,
+    prefix: process.env.BULLMQ_PREFIX ?? "insightkm",
+  });
+  try {
+    await assertQueueCapacity(queue, configuration.QUEUE_MAX_WAITING_JOBS);
+    await queue.add(
+      BUSINESS_INSIGHT_JOB,
+      { businessInsightJobId },
+      {
+        jobId: `business-insight-${businessInsightJobId}`,
+        attempts: 3,
+        backoff: { type: "exponential", delay: 5_000 },
+        removeOnComplete: { age: 86_400, count: 1_000 },
+        removeOnFail: { age: 604_800, count: 2_000 },
+      },
+    );
   } finally {
     await queue.close();
     connection.disconnect();

@@ -256,5 +256,16 @@ export const legacyApiSummarySchema = z.object({
   limitations: z.array(z.string().trim().min(1).max(500)).max(10),
 });
 
+export const legacyApiAiDefinitionSchema = z.object({
+  toolName: z
+    .string()
+    .trim()
+    .regex(/^[A-Za-z][A-Za-z0-9_]{0,63}$/),
+  toolDescription: z.string().trim().min(10).max(2_000),
+  whenToUse: z.string().trim().min(10).max(2_000),
+  inputJsonSchema: z.record(z.string(), z.unknown()),
+  outputJsonSchema: z.record(z.string(), z.unknown()),
+});
+
 export type LegacyApiParameter = z.infer<typeof legacyApiParameterSchema>;
 export type LegacyApiRegistryInput = z.infer<typeof legacyApiRegistrySchema>;

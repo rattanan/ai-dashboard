@@ -59,12 +59,19 @@ export function validKnowledgeUploadIdentity(
 }
 
 async function embeddingModelForOrganization(organizationId: string) {
-  const provider = await db.llmProvider.findFirst({
-    where: { organizationId, active: true },
-    select: { embeddingModel: true },
-    orderBy: { updatedAt: "desc" },
-  });
-  return provider?.embeddingModel ?? env().EMBEDDING_MODEL;
+  const [endpoint, provider] = await Promise.all([
+    db.aiEndpointConfig.findFirst({
+      where: { organizationId, kind: "EMBEDDING", active: true },
+      select: { model: true },
+      orderBy: { updatedAt: "desc" },
+    }),
+    db.llmProvider.findFirst({
+      where: { organizationId, active: true },
+      select: { embeddingModel: true },
+      orderBy: { updatedAt: "desc" },
+    }),
+  ]);
+  return endpoint?.model ?? provider?.embeddingModel ?? env().EMBEDDING_MODEL;
 }
 
 export async function uploadKnowledgeDocument(

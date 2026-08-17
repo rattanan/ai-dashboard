@@ -5,6 +5,7 @@ import { db } from "@/server/db";
 import type { z } from "zod";
 import type { businessInsightFilterSchema } from "@/schemas/business-insight";
 import { failure, success } from "@/types/result";
+import { enqueueBusinessInsightJob } from "@/server/services/job-queue";
 
 type InsightFilters = z.infer<typeof businessInsightFilterSchema>;
 
@@ -432,6 +433,129 @@ async function actorScope(context: AuthorizationContext) {
     organizationUnitId: membership?.organizationUnitId ?? null,
     projectIds: membership?.projects.map(({ projectId }) => projectId) ?? [],
   };
+}
+
+export async function queueBusinessInsight(
+  context: AuthorizationContext,
+  filters: InsightFilters,
+) {
+  await requirePermission(context, "insight.manage");
+  const scope = await actorScope(context);
+  const [botCount, unitCount, projectCount, userCount] = await Promise.all([
+    filters.botId
+      ? db.bot.count({
+          where: { id: filters.botId, organizationId: context.organizationId },
+        })
+      : Promise.resolve(1),
+    filters.organizationUnitId
+      ? db.organizationUnit.count({
+          where: {
+            id: filters.organizationUnitId,
+            organizationId: context.organizationId,
+          },
+        })
+      : Promise.resolve(1),
+    filters.projectId
+      ? db.organizationProject.count({
+          where: {
+            id: filters.projectId,
+            organizationId: context.organizationId,
+          },
+        })
+      : Promise.resolve(1),
+    filters.userId
+      ? db.organizationMember.count({
+          where: {
+            userId: filters.userId,
+            organizationId: context.organizationId,
+          },
+        })
+      : Promise.resolve(1),
+  ]);
+  if (
+    [botCount, unitCount, projectCount, userCount].some((count) => count !== 1)
+  )
+    return failure(
+      "NOT_FOUND",
+      "An insight filter is outside this organization.",
+    );
+  if (
+    !scope.admin &&
+    ((filters.organizationUnitId &&
+      filters.organizationUnitId !== scope.organizationUnitId) ||
+      (filters.projectId && !scope.projectIds.includes(filters.projectId)))
+  )
+    return failure("FORBIDDEN", "The selected filter is outside your scope.");
+  if (!scope.admin && filters.userId) {
+    const targetInScope = await db.organizationMember.count({
+      where: {
+        organizationId: context.organizationId,
+        userId: filters.userId,
+        OR: [
+          ...(scope.organizationUnitId
+            ? [{ organizationUnitId: scope.organizationUnitId }]
+            : []),
+          ...(scope.projectIds.length
+            ? [{ projects: { some: { projectId: { in: scope.projectIds } } } }]
+            : []),
+          { userId: context.userId },
+        ],
+      },
+    });
+    if (!targetInScope)
+      return failure("FORBIDDEN", "The selected user is outside your scope.");
+  }
+  const dateFrom = new Date(filters.dateFrom);
+  dateFrom.setHours(0, 0, 0, 0);
+  const dateTo = new Date(filters.dateTo);
+  dateTo.setHours(23, 59, 59, 999);
+  const job = await db.businessInsightJob.create({
+    data: {
+      organizationId: context.organizationId,
+      workspaceId: context.workspaceId,
+      requestedById: context.userId,
+      botId: filters.botId,
+      organizationUnitId: filters.organizationUnitId,
+      projectId: filters.projectId,
+      userFilterId: filters.userId,
+      dateFrom,
+      dateTo,
+      scopeMetadata: {
+        actorMode: scope.admin ? "ORGANIZATION" : "DEPARTMENT_PROJECT",
+        actorOrganizationUnitId: scope.organizationUnitId,
+        actorProjectIds: scope.projectIds,
+      },
+    },
+  });
+  try {
+    await enqueueBusinessInsightJob(job.id);
+    await db.auditLog.create({
+      data: {
+        organizationId: context.organizationId,
+        workspaceId: context.workspaceId,
+        actorId: context.userId,
+        action: "BUSINESS_INSIGHT_QUEUED",
+        entityType: "BusinessInsightJob",
+        entityId: job.id,
+        outcome: "SUCCESS",
+        metadata: { dateFrom, dateTo, botId: filters.botId ?? null },
+      },
+    });
+    return success({ id: job.id, status: "PROCESSING" as const });
+  } catch {
+    await db.businessInsightJob.update({
+      where: { id: job.id },
+      data: {
+        status: "FAILED",
+        errorCode: "QUEUE_UNAVAILABLE",
+        completedAt: new Date(),
+      },
+    });
+    return failure(
+      "INTERNAL_ERROR",
+      "The insight worker queue is unavailable.",
+    );
+  }
 }
 
 export async function createBusinessInsight(

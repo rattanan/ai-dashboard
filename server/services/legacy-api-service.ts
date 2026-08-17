@@ -16,6 +16,7 @@ import {
 import { validatePublicWebUrl } from "@/packages/knowledge/source-security";
 import {
   legacyApiParameterSchema,
+  legacyApiAiDefinitionSchema,
   legacyApiSummarySchema,
   legacyApiToolPlanSchema,
   type LegacyApiParameter,
@@ -467,13 +468,28 @@ export async function invokeLegacyApi(
   if (!authorized.ok) return authorized;
   const api = authorized.data;
   if (input.botId) {
-    const assigned = await db.botLegacyApi.count({
-      where: {
-        botId: input.botId,
-        legacyApiId: api.id,
-        bot: { organizationId: context.organizationId, active: true },
-      },
-    });
+    const assigned =
+      api.sourceScope === "GLOBAL"
+        ? await db.bot.count({
+            where: {
+              id: input.botId,
+              organizationId: context.organizationId,
+              active: true,
+              apiToolsEnabled: true,
+            },
+          })
+        : await db.botLegacyApi.count({
+            where: {
+              botId: input.botId,
+              legacyApiId: api.id,
+              enabled: true,
+              bot: {
+                organizationId: context.organizationId,
+                active: true,
+                apiToolsEnabled: true,
+              },
+            },
+          });
     if (!assigned) return failure("NOT_FOUND", "Bot API assignment not found.");
   }
   const definitions = parameters(api.parameterDefinitions);
@@ -710,6 +726,8 @@ export async function testLegacyApi(
     where: { id },
     data: {
       lastTestStatus: result.ok ? result.data.status : "FAILED",
+      sourceStatus:
+        result.ok && result.data.status === "COMPLETED" ? "READY" : "FAILED",
       lastTestMessage: result.ok
         ? "Safe contract test completed."
         : result.error.message,
@@ -721,6 +739,67 @@ export async function testLegacyApi(
     },
   });
   return result;
+}
+
+export async function generateLegacyApiToolDefinition(
+  context: AuthorizationContext,
+  id: string,
+) {
+  await requirePermission(context, "legacy_api.manage");
+  await requireResourceAccess(context, "LEGACY_API", id, "MANAGE");
+  const api = await db.legacyApi.findFirst({
+    where: {
+      id,
+      organizationId: context.organizationId,
+      workspaceId: context.workspaceId,
+    },
+    include: {
+      invocations: {
+        where: { status: "COMPLETED" },
+        select: { resultPreview: true },
+        orderBy: { createdAt: "desc" },
+        take: 1,
+      },
+    },
+  });
+  if (!api) return failure("NOT_FOUND", "API tool not found.");
+  const generated = await generateCachedStructuredOutput(context, {
+    requestId: crypto.randomUUID(),
+    schemaName: "legacy_api_tool_definition",
+    outputSchema: legacyApiAiDefinitionSchema,
+    promptVersion: "legacy-api-tool-definition-v1",
+    systemPrompt:
+      "Create a precise read-only AI tool definition from the supplied API contract and masked test response. Never invent fields, credentials, side effects, write operations, or unobserved output. Use a stable snake_case tool name. Return only the requested schema.",
+    userPrompt: JSON.stringify({
+      currentName: api.name,
+      currentDescription: api.description,
+      method: api.method,
+      endpointPath: api.endpointPath,
+      parameters: api.parameterDefinitions,
+      responseSchema: api.responseSchema,
+      responseMapping: api.responseMapping,
+      maskedTestResponse: api.invocations[0]?.resultPreview ?? null,
+    }),
+  });
+  if (!generated.ok) return generated;
+  await db.auditLog.create({
+    data: {
+      organizationId: context.organizationId,
+      workspaceId: context.workspaceId,
+      actorId: context.userId,
+      action: "LEGACY_API_AI_DEFINITION_GENERATED",
+      entityType: "LegacyApi",
+      entityId: api.id,
+      entityName: api.name,
+      outcome: "SUCCESS",
+      metadata: {
+        provider: generated.data.provider,
+        model: generated.data.model,
+        testResponseAvailable: Boolean(api.invocations[0]?.resultPreview),
+      },
+    },
+  });
+  return success({ definition: generated.data.data });
 }
 
 export async function deleteLegacyApi(
@@ -742,26 +821,51 @@ export async function planLegacyApiToolCall(
   botId: string,
   question: string,
 ) {
-  const assigned = await db.botLegacyApi.findMany({
-    where: {
-      botId,
-      bot: { organizationId: context.organizationId, active: true },
-      legacyApi: { workspaceId: context.workspaceId, enabled: true },
-    },
-    include: { legacyApi: true },
-  });
-  const authorized = [] as typeof assigned;
-  for (const item of assigned) {
+  const [assigned, globalApis] = await Promise.all([
+    db.botLegacyApi.findMany({
+      where: {
+        botId,
+        enabled: true,
+        bot: {
+          organizationId: context.organizationId,
+          active: true,
+          apiToolsEnabled: true,
+        },
+        legacyApi: { workspaceId: context.workspaceId, enabled: true },
+      },
+      include: { legacyApi: true },
+      orderBy: { priority: "asc" },
+    }),
+    db.legacyApi.findMany({
+      where: {
+        organizationId: context.organizationId,
+        workspaceId: context.workspaceId,
+        enabled: true,
+        sourceScope: "GLOBAL",
+        sourceStatus: { not: "DISABLED" },
+      },
+      orderBy: { name: "asc" },
+    }),
+  ]);
+  const candidates = [
+    ...assigned.map((item) => item.legacyApi),
+    ...globalApis,
+  ].filter(
+    (api, index, items) =>
+      items.findIndex((item) => item.id === api.id) === index,
+  );
+  const authorized = [] as typeof candidates;
+  for (const api of candidates) {
     const decision = await authorizeResource(
       context,
       "LEGACY_API",
-      item.legacyApiId,
+      api.id,
       "USE",
     );
-    if (decision.allowed) authorized.push(item);
+    if (decision.allowed) authorized.push(api);
   }
   if (!authorized.length) return success({ intent: "OTHER" as const });
-  const tools = authorized.map(({ legacyApi }) => ({
+  const tools = authorized.map((legacyApi) => ({
     id: legacyApi.id,
     name: legacyApi.name,
     description: legacyApi.description,
@@ -780,10 +884,7 @@ export async function planLegacyApiToolCall(
   if (!generated.ok) return success({ intent: "OTHER" as const });
   const plan = generated.data.data;
   if (plan.intent !== "API") return success(plan);
-  if (
-    !plan.apiId ||
-    !authorized.some((item) => item.legacyApiId === plan.apiId)
-  )
+  if (!plan.apiId || !authorized.some((item) => item.id === plan.apiId))
     return failure(
       "AI_INVALID_RESPONSE",
       "The tool plan selected an unauthorized API.",

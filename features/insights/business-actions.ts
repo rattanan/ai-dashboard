@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireAuthorization } from "@/server/auth/authorization";
 import { businessInsightFilterSchema } from "@/schemas/business-insight";
-import { createBusinessInsight } from "@/server/services/business-insight-service";
+import { queueBusinessInsight } from "@/server/services/business-insight-service";
 import { failure } from "@/types/result";
 
 export async function createBusinessInsightAction(
@@ -18,7 +18,7 @@ export async function createBusinessInsightAction(
     return failure("VALIDATION_ERROR", "Check the insight filters.", {
       fieldErrors: parsed.error.flatten().fieldErrors,
     });
-  const result = await createBusinessInsight(context, parsed.data);
+  const result = await queueBusinessInsight(context, parsed.data);
   if (result.ok) revalidatePath("/workspace/insights");
   return result;
 }

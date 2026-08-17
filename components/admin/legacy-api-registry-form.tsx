@@ -1,8 +1,10 @@
 "use client";
 
 import { useActionState, useState } from "react";
+import Link from "next/link";
 import {
   deleteLegacyApiAction,
+  generateLegacyApiToolDefinitionAction,
   saveLegacyApiAction,
   testLegacyApiAction,
 } from "@/features/legacy-api/actions";
@@ -35,6 +37,9 @@ type LegacyApiValue = {
   responseMappingJson: string;
   authType: "NONE" | "API_KEY" | "BEARER" | "BASIC" | "CUSTOM_HEADER";
   credentialPresent: boolean;
+  sourceScope: "GLOBAL" | "SELECTED_BOTS";
+  botIds: string[];
+  priority: number;
 };
 
 function ActionMessage({ state }: { state: ActionState }) {
@@ -61,6 +66,18 @@ function ActionMessage({ state }: { state: ActionState }) {
         <pre className="mt-3 max-h-72 overflow-auto rounded bg-slate-950 p-3 text-xs text-white">
           {JSON.stringify(data.preview, null, 2)}
         </pre>
+      ) : null}
+      {data && data.definition && typeof data.definition === "object" ? (
+        <div className="mt-3">
+          <p className="font-medium">Editable AI tool definition draft</p>
+          <pre className="mt-2 max-h-96 overflow-auto rounded bg-slate-950 p-3 text-xs text-white">
+            {JSON.stringify(data.definition, null, 2)}
+          </pre>
+          <p className="mt-2 text-xs">
+            Review this draft, then copy the approved description and schemas
+            into Steps 5–6 before saving.
+          </p>
+        </div>
       ) : null}
       {data && data.citation && typeof data.citation === "object" ? (
         <p className="mt-2 text-xs">
@@ -101,7 +118,13 @@ function JsonArea({
   );
 }
 
-export function LegacyApiRegistryForm({ value }: { value?: LegacyApiValue }) {
+export function LegacyApiRegistryForm({
+  value,
+  bots,
+}: {
+  value?: LegacyApiValue;
+  bots: Array<{ id: string; name: string }>;
+}) {
   const prefix = value?.id ?? "new";
   const [authType, setAuthType] = useState(value?.authType ?? "NONE");
   const [state, action, pending] = useActionState(saveLegacyApiAction, null);
@@ -113,8 +136,40 @@ export function LegacyApiRegistryForm({ value }: { value?: LegacyApiValue }) {
     deleteLegacyApiAction,
     null,
   );
+  const [definitionState, definitionAction, generatingDefinition] =
+    useActionState(generateLegacyApiToolDefinitionAction, null);
+  const savedId =
+    !value &&
+    state?.ok &&
+    state.data &&
+    typeof state.data === "object" &&
+    "id" in state.data &&
+    typeof state.data.id === "string"
+      ? state.data.id
+      : null;
   return (
     <div className="space-y-5">
+      <ol
+        className="grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4"
+        aria-label="API source wizard steps"
+      >
+        {[
+          "1 Basic information",
+          "2 Authentication",
+          "3 Inspect API",
+          "4 Test API",
+          "5 Output mapping",
+          "6 AI tool definition",
+          "7 Save & assign",
+        ].map((step) => (
+          <li
+            key={step}
+            className="rounded-lg border bg-muted px-3 py-2 font-medium"
+          >
+            {step}
+          </li>
+        ))}
+      </ol>
       <form action={action} className="grid gap-5 lg:grid-cols-2">
         {value ? (
           <>
@@ -405,14 +460,74 @@ export function LegacyApiRegistryForm({ value }: { value?: LegacyApiValue }) {
           />
           Enabled for assigned bots and authorized users
         </label>
+        <Field label="Source scope" htmlFor={`legacy-scope-${prefix}`}>
+          <select
+            id={`legacy-scope-${prefix}`}
+            name="sourceScope"
+            defaultValue={value?.sourceScope ?? "SELECTED_BOTS"}
+            className="min-h-11 w-full rounded-lg border bg-background px-3"
+          >
+            <option value="SELECTED_BOTS">Selected bots</option>
+            <option value="GLOBAL">Global within actor ACL</option>
+          </select>
+        </Field>
+        <Field
+          label="Assignment priority"
+          htmlFor={`legacy-priority-${prefix}`}
+        >
+          <Input
+            id={`legacy-priority-${prefix}`}
+            name="priority"
+            type="number"
+            min="1"
+            max="1000"
+            defaultValue={value?.priority ?? 100}
+          />
+        </Field>
+        <fieldset className="rounded-lg border p-3 lg:col-span-2">
+          <legend className="px-1 text-sm font-medium">
+            Step 7 · Assign bots
+          </legend>
+          <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {bots.map((bot) => (
+              <label
+                key={bot.id}
+                className="flex min-h-11 items-center gap-2 text-sm"
+              >
+                <input
+                  type="checkbox"
+                  name="botIds"
+                  value={bot.id}
+                  defaultChecked={value?.botIds.includes(bot.id)}
+                />
+                {bot.name}
+              </label>
+            ))}
+          </div>
+        </fieldset>
         <div className="space-y-3 lg:col-span-2">
           <ActionMessage state={state} />
+          {savedId ? (
+            <div className="flex flex-wrap gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+              <Button asChild size="sm">
+                <Link href={`/workspace/sources/api-tools/${savedId}/edit`}>
+                  Configure & test this tool
+                </Link>
+              </Button>
+              <Button asChild size="sm" variant="outline">
+                <Link
+                  href={`/workspace/sources/api-tools/new?after=${savedId}`}
+                >
+                  Add another API tool
+                </Link>
+              </Button>
+              <Button asChild size="sm" variant="ghost">
+                <Link href="/workspace/sources/api-tools">View all tools</Link>
+              </Button>
+            </div>
+          ) : null}
           <Button disabled={pending}>
-            {pending
-              ? "Saving…"
-              : value
-                ? "Save API definition"
-                : "Register API"}
+            {pending ? "Saving…" : value ? "Save API tool" : "Create API tool"}
           </Button>
         </div>
       </form>
@@ -432,6 +547,19 @@ export function LegacyApiRegistryForm({ value }: { value?: LegacyApiValue }) {
             <ActionMessage state={testState} />
             <Button type="submit" variant="secondary" disabled={testing}>
               {testing ? "Testing safely…" : "Test API"}
+            </Button>
+          </form>
+          <form action={definitionAction} className="space-y-3 lg:col-span-2">
+            <input type="hidden" name="id" value={value.id} />
+            <ActionMessage state={definitionState} />
+            <Button
+              type="submit"
+              variant="outline"
+              disabled={generatingDefinition}
+            >
+              {generatingDefinition
+                ? "Generating definition…"
+                : "Generate AI tool definition"}
             </Button>
           </form>
           <form

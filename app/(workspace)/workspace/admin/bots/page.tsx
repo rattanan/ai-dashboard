@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/ui/page-header";
 import {
@@ -19,63 +20,76 @@ function questions(value: unknown) {
 export default async function BotAdministrationPage() {
   const context = await requireAuthorization();
   await requirePermission(context, "bot.manage");
-  const [bots, racks, dataSources, legacyApis, roles, users, providers] =
-    await Promise.all([
-      db.bot.findMany({
-        where: { organizationId: context.organizationId },
-        include: {
-          providerConfig: true,
-          knowledgeRacks: true,
-          dataSources: true,
-          legacyApis: true,
-          access: true,
-          _count: { select: { conversations: true } },
-        },
-        orderBy: { updatedAt: "desc" },
-      }),
-      db.knowledgeRack.findMany({
-        where: { organizationId: context.organizationId, active: true },
-        select: { id: true, name: true },
-        orderBy: { name: "asc" },
-      }),
-      db.dataSource.findMany({
-        where: {
-          workspaceId: context.workspaceId,
-          status: "CONNECTED",
-          type: { in: ["MYSQL", "POSTGRESQL", "MSSQL", "ORACLE"] },
-        },
-        select: { id: true, name: true },
-        orderBy: { name: "asc" },
-      }),
-      db.legacyApi.findMany({
-        where: {
-          organizationId: context.organizationId,
-          workspaceId: context.workspaceId,
-          enabled: true,
-        },
-        select: { id: true, name: true },
-        orderBy: { name: "asc" },
-      }),
-      db.role.findMany({
-        where: { organizationId: context.organizationId },
-        select: { id: true, name: true },
-        orderBy: { name: "asc" },
-      }),
-      db.user.findMany({
-        where: {
-          status: "ACTIVE",
-          deletedAt: null,
-          memberships: { some: { organizationId: context.organizationId } },
-        },
-        select: { id: true, name: true, email: true },
-        orderBy: { name: "asc" },
-      }),
-      db.llmProvider.findMany({
-        where: { organizationId: context.organizationId },
-        select: { id: true, name: true },
-        orderBy: { name: "asc" },
-      }),
-    ]);
+  const [
+    bots,
+    racks,
+    dataSources,
+    legacyApis,
+    roles,
+    users,
+    providers,
+    chatEndpoints,
+  ] = await Promise.all([
+    db.bot.findMany({
+      where: { organizationId: context.organizationId },
+      include: {
+        providerConfig: true,
+        knowledgeRacks: true,
+        dataSources: true,
+        legacyApis: true,
+        access: true,
+        _count: { select: { conversations: true } },
+      },
+      orderBy: { updatedAt: "desc" },
+    }),
+    db.knowledgeRack.findMany({
+      where: { organizationId: context.organizationId, active: true },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    }),
+    db.dataSource.findMany({
+      where: {
+        workspaceId: context.workspaceId,
+        status: "CONNECTED",
+        type: { in: ["MYSQL", "POSTGRESQL", "MSSQL", "ORACLE"] },
+      },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    }),
+    db.legacyApi.findMany({
+      where: {
+        organizationId: context.organizationId,
+        workspaceId: context.workspaceId,
+        enabled: true,
+      },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    }),
+    db.role.findMany({
+      where: { organizationId: context.organizationId },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    }),
+    db.user.findMany({
+      where: {
+        status: "ACTIVE",
+        deletedAt: null,
+        memberships: { some: { organizationId: context.organizationId } },
+      },
+      select: { id: true, name: true, email: true },
+      orderBy: { name: "asc" },
+    }),
+    db.llmProvider.findMany({
+      where: { organizationId: context.organizationId },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    }),
+    db.aiEndpointConfig.findMany({
+      where: { organizationId: context.organizationId, kind: "CHAT" },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    }),
+  ]);
   const userChoices = users.map((user) => ({
     id: user.id,
     name: user.name ?? user.email,
@@ -115,7 +129,21 @@ export default async function BotAdministrationPage() {
                 welcomeMessage: bot.welcomeMessage,
                 suggestedQuestions: questions(bot.suggestedQuestions),
                 active: bot.active,
+                fallbackMessage: bot.fallbackMessage,
+                apiToolsEnabled: bot.apiToolsEnabled,
+                databaseToolsEnabled: bot.databaseToolsEnabled,
+                primaryColor: bot.primaryColor,
+                headerColor: bot.headerColor,
+                chatBubbleColor: bot.chatBubbleColor,
+                fontFamily: bot.fontFamily as
+                  "system" | "sans" | "serif" | "mono",
+                colorMode: bot.colorMode as "LIGHT" | "DARK" | "AUTO",
+                launcherIcon: bot.launcherIcon,
+                windowPosition: bot.windowPosition as "LEFT" | "RIGHT",
+                placeholder: bot.placeholder,
+                brandingEnabled: bot.brandingEnabled,
                 providerId: bot.providerConfig?.providerId ?? null,
+                chatEndpointId: bot.providerConfig?.chatEndpointId ?? null,
                 model: bot.providerConfig?.model ?? null,
                 temperature: bot.providerConfig?.temperature ?? 0.1,
                 maxTokens: bot.providerConfig?.maxTokens ?? 2048,
@@ -140,6 +168,7 @@ export default async function BotAdministrationPage() {
               roles={roles}
               users={userChoices}
               providers={providers}
+              chatEndpoints={chatEndpoints}
               dataSources={dataSources}
               legacyApis={legacyApis}
             />
@@ -156,6 +185,12 @@ export default async function BotAdministrationPage() {
                 </button>
               </form>
               <DeleteBotForm botId={bot.id} botName={bot.name} />
+              <Link
+                href={`/workspace/admin/bots/${bot.id}`}
+                className="min-h-10 rounded-lg border px-3 py-2.5 text-sm font-medium"
+              >
+                Open bot detail
+              </Link>
             </div>
           </div>
         </details>
@@ -167,6 +202,7 @@ export default async function BotAdministrationPage() {
           roles={roles}
           users={userChoices}
           providers={providers}
+          chatEndpoints={chatEndpoints}
           dataSources={dataSources}
           legacyApis={legacyApis}
         />

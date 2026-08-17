@@ -95,12 +95,14 @@ export function BusinessInsightForm({
               state.ok ? "text-sm text-emerald-700" : "text-sm text-red-700"
             }
           >
-            {state.ok ? "Insight snapshot created." : state.error.message}
+            {state.ok
+              ? "Insight analysis queued in the worker."
+              : state.error.message}
           </p>
         ) : null}
         <Button disabled={pending}>
           {pending
-            ? "Aggregating permitted conversations…"
+            ? "Queueing permitted conversations…"
             : "Run business insight"}
         </Button>
       </div>

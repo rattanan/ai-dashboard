@@ -16,6 +16,8 @@
     "apps/worker/**/*.ts",
     "packages/queue/**/*.ts",
     "packages/knowledge/**/*.ts",
+    "packages/ai/**/*.ts",
+    "packages/insights/**/*.ts",
     "schemas/worker-env.ts"
   ],
   "exclude": ["node_modules", "tests"]

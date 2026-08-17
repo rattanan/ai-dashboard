@@ -19,6 +19,7 @@ import {
 import { failure } from "@/types/result";
 
 function refreshOperationsViews() {
+  revalidatePath("/workspace/sources");
   revalidatePath("/workspace/admin/knowledge");
   revalidatePath("/workspace/admin/knowledge/sources");
   revalidatePath("/workspace/admin/knowledge/index-jobs");
