@@ -125,6 +125,17 @@ describe("Phase 2 document ingestion", () => {
     expect(first[0].contentHash).toMatch(/^[a-f0-9]{64}$/);
   });
 
+  it("removes binary control characters before embedding", async () => {
+    const parsed = await parseDocument(
+      Buffer.from("Policy\u0000 text\u0007 with\u001f controls"),
+      "policy.txt",
+    );
+    expect(parsed.sections[0].text).toBe("Policy text with controls");
+    expect(parsed.sections[0].text).not.toMatch(
+      /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/,
+    );
+  });
+
   it("removes document prompt-injection lines while retaining evidence", () => {
     expect(
       sanitizeRetrieval(

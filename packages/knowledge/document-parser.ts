@@ -23,7 +23,9 @@ export type ParsedDocument = {
 
 function normalizeText(value: string) {
   return value
-    .replace(/\r\n/g, "\n")
+    .normalize("NFKC")
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, " ")
+    .replace(/\r\n?/g, "\n")
     .replace(/[\t ]+/g, " ")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
