@@ -171,6 +171,11 @@ export function AiEndpointForm({
         <Field
           label="Model"
           htmlFor={`endpoint-model-${prefix}`}
+          hint={
+            embedding
+              ? "Use the model ID only. Gemini OpenAI compatibility must not include :embedContent."
+              : undefined
+          }
           error={fieldError(state, "model")}
           required
         >

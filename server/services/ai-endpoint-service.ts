@@ -12,6 +12,7 @@ import {
   assertEmbeddingCount,
   embeddingAdapter,
 } from "@/packages/ai/embedding-adapter";
+import { providerHttpError } from "@/packages/ai/provider-http-error";
 import { enqueueDocumentIndexJob } from "@/server/services/job-queue";
 
 export function resolvedAiEndpointUrl(
@@ -331,8 +332,7 @@ export async function testAiEndpoint(
       ),
       signal: AbortSignal.timeout(endpoint.timeoutMs),
     });
-    if (!response.ok)
-      throw new Error(`Endpoint returned HTTP ${response.status}`);
+    if (!response.ok) throw new Error(await providerHttpError(response));
     const payload = (await response.json()) as {
       choices?: Array<{ message?: { content?: string } }>;
     };

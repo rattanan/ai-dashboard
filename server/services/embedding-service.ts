@@ -12,6 +12,7 @@ import {
   inferEmbeddingProviderType,
 } from "@/packages/ai/embedding-adapter";
 import { fetchAiWithRetry } from "@/packages/ai/fetch-with-retry";
+import { providerHttpError } from "@/packages/ai/provider-http-error";
 
 export async function embedKnowledgeQuery(
   organizationId: string,
@@ -59,8 +60,7 @@ export async function embedKnowledgeQuery(
       maxRetries: endpoint?.maxRetries ?? configuration.AI_MAX_RETRIES,
     },
   );
-  if (!response.ok)
-    throw new Error(`Embedding provider returned HTTP ${response.status}`);
+  if (!response.ok) throw new Error(await providerHttpError(response));
   const embedding = assertEmbeddingCount(
     adapter.vectors(await response.json()),
     1,

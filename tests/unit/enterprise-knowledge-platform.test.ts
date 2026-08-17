@@ -166,4 +166,26 @@ describe("enterprise chat and source contracts", () => {
     expect(result.success).toBe(true);
     if (result.success) expect(result.data.vectorDimension).toBeUndefined();
   });
+
+  it("rejects a native Gemini operation suffix for OpenAI-compatible embeddings", () => {
+    const result = aiEndpointSchema.safeParse({
+      credentialPresent: true,
+      name: "Gemini embeddings",
+      kind: "EMBEDDING",
+      providerType: "OPENAI_COMPATIBLE",
+      baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
+      model: "gemini-embedding-2:embedContent",
+      batchSize: 16,
+      vectorDimension: 768,
+      timeoutMs: 120_000,
+      maxRetries: 2,
+      active: true,
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success)
+      expect(result.error.flatten().fieldErrors.model?.[0]).toContain(
+        "remove ':embedContent'",
+      );
+  });
 });

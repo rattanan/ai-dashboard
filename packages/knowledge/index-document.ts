@@ -10,6 +10,7 @@ import {
   inferEmbeddingProviderType,
 } from "../ai/embedding-adapter.js";
 import { fetchAiWithRetry } from "../ai/fetch-with-retry.js";
+import { providerHttpError } from "../ai/provider-http-error.js";
 
 type IndexJobRow = {
   jobId: string;
@@ -100,8 +101,7 @@ async function embedBatch(
       maxRetries: configuration.maxRetries,
     },
   );
-  if (!response.ok)
-    throw new Error(`Embedding provider returned HTTP ${response.status}`);
+  if (!response.ok) throw new Error(await providerHttpError(response));
   return assertEmbeddingCount(
     adapter.vectors(await response.json()),
     texts.length,

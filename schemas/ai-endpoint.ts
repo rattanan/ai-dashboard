@@ -45,6 +45,17 @@ export const aiEndpointSchema = z
         path: ["batchSize"],
         message: "Batch size is required for embedding endpoints",
       });
+    if (
+      value.kind === "EMBEDDING" &&
+      value.providerType === "OPENAI_COMPATIBLE" &&
+      /:embedContent$/i.test(value.model)
+    )
+      context.addIssue({
+        code: "custom",
+        path: ["model"],
+        message:
+          "Use the OpenAI-compatible model ID only; remove ':embedContent'. For Gemini, use gemini-embedding-2-preview or gemini-embedding-001.",
+      });
   });
 
 export const aiEndpointIdSchema = z.object({
