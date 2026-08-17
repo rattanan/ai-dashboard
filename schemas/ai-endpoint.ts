@@ -21,7 +21,10 @@ export const aiEndpointSchema = z
     temperature: z.coerce.number().min(0).max(2).optional(),
     maxTokens: z.coerce.number().int().min(128).max(128_000).optional(),
     batchSize: z.coerce.number().int().min(1).max(200).optional(),
-    vectorDimension: z.coerce.number().int().min(1).max(65_535).optional(),
+    vectorDimension: z.preprocess(
+      (value) => (value === "" || value === null ? undefined : value),
+      z.coerce.number().int().min(1).max(65_535).optional(),
+    ),
     timeoutMs: z.coerce.number().int().min(1_000).max(300_000),
     maxRetries: z.coerce.number().int().min(0).max(5),
     active: z.preprocess(

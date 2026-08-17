@@ -144,4 +144,26 @@ describe("enterprise chat and source contracts", () => {
       }).success,
     ).toBe(true);
   });
+
+  it("accepts an empty optional vector dimension from FormData", () => {
+    const result = aiEndpointSchema.safeParse({
+      credentialPresent: "false",
+      name: "Production embeddings",
+      kind: "EMBEDDING",
+      providerType: "OPENAI_COMPATIBLE",
+      baseUrl: "https://ai.example/v1",
+      model: "configured-model",
+      apiKey: "",
+      batchSize: "16",
+      vectorDimension: "",
+      temperature: "0",
+      maxTokens: "128",
+      timeoutMs: "120000",
+      maxRetries: "2",
+      active: "on",
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.vectorDimension).toBeUndefined();
+  });
 });

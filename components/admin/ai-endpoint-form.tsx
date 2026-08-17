@@ -11,7 +11,13 @@ import { Input } from "@/components/ui/input";
 
 type ActionState =
   | { ok: true; data: unknown }
-  | { ok: false; error: { message: string } }
+  | {
+      ok: false;
+      error: {
+        message: string;
+        fieldErrors?: Record<string, string[]>;
+      };
+    }
   | null;
 
 export type AiEndpointFormValue = {
@@ -67,6 +73,10 @@ function ActionMessage({ state }: { state: ActionState }) {
   );
 }
 
+function fieldError(state: ActionState, name: string) {
+  return state && !state.ok ? state.error.fieldErrors?.[name]?.[0] : undefined;
+}
+
 export function AiEndpointForm({
   kind,
   value,
@@ -96,6 +106,7 @@ export function AiEndpointForm({
         <Field
           label="Configuration name"
           htmlFor={`endpoint-name-${prefix}`}
+          error={fieldError(state, "name")}
           required
         >
           <Input
@@ -105,18 +116,21 @@ export function AiEndpointForm({
             placeholder={
               embedding ? "Production embeddings" : "Primary chat AI"
             }
+            aria-invalid={Boolean(fieldError(state, "name"))}
             required
           />
         </Field>
         <Field
           label="Provider type"
           htmlFor={`endpoint-provider-${prefix}`}
+          error={fieldError(state, "providerType")}
           required
         >
           <select
             id={`endpoint-provider-${prefix}`}
             name="providerType"
             defaultValue={value?.providerType ?? "OPENAI_COMPATIBLE"}
+            aria-invalid={Boolean(fieldError(state, "providerType"))}
             className="min-h-11 w-full rounded-lg border bg-background px-3 text-sm"
           >
             <option value="OPENAI_COMPATIBLE">OpenAI-compatible</option>
@@ -137,6 +151,7 @@ export function AiEndpointForm({
               ? "Accepts an exact /api/embed or /embeddings URL, or a provider base URL."
               : "Accepts an exact /chat/completions URL or an OpenAI-compatible base URL."
           }
+          error={fieldError(state, "baseUrl")}
           required
         >
           <Input
@@ -149,15 +164,22 @@ export function AiEndpointForm({
                 ? "https://embedding.example/api/embed"
                 : "https://ai.example/v1"
             }
+            aria-invalid={Boolean(fieldError(state, "baseUrl"))}
             required
           />
         </Field>
-        <Field label="Model" htmlFor={`endpoint-model-${prefix}`} required>
+        <Field
+          label="Model"
+          htmlFor={`endpoint-model-${prefix}`}
+          error={fieldError(state, "model")}
+          required
+        >
           <Input
             id={`endpoint-model-${prefix}`}
             name="model"
             defaultValue={value?.model}
             placeholder={embedding ? "embedding-model" : "chat-model"}
+            aria-invalid={Boolean(fieldError(state, "model"))}
             required
           />
         </Field>
@@ -168,17 +190,23 @@ export function AiEndpointForm({
               : "API key (optional)"
           }
           htmlFor={`endpoint-key-${prefix}`}
+          error={fieldError(state, "apiKey")}
         >
           <Input
             id={`endpoint-key-${prefix}`}
             name="apiKey"
             type="password"
             autoComplete="new-password"
+            aria-invalid={Boolean(fieldError(state, "apiKey"))}
           />
         </Field>
         {embedding ? (
           <>
-            <Field label="Batch size" htmlFor={`endpoint-batch-${prefix}`}>
+            <Field
+              label="Batch size"
+              htmlFor={`endpoint-batch-${prefix}`}
+              error={fieldError(state, "batchSize")}
+            >
               <Input
                 id={`endpoint-batch-${prefix}`}
                 name="batchSize"
@@ -186,6 +214,7 @@ export function AiEndpointForm({
                 min="1"
                 max="200"
                 defaultValue={value?.batchSize ?? 16}
+                aria-invalid={Boolean(fieldError(state, "batchSize"))}
                 required
               />
             </Field>
@@ -193,6 +222,7 @@ export function AiEndpointForm({
               label="Expected vector dimension"
               htmlFor={`endpoint-dimension-${prefix}`}
               hint="Optional. Test Embedding detects the actual dimension."
+              error={fieldError(state, "vectorDimension")}
             >
               <Input
                 id={`endpoint-dimension-${prefix}`}
@@ -200,6 +230,7 @@ export function AiEndpointForm({
                 type="number"
                 min="1"
                 defaultValue={value?.vectorDimension ?? undefined}
+                aria-invalid={Boolean(fieldError(state, "vectorDimension"))}
               />
             </Field>
             <input type="hidden" name="temperature" value="0" />
@@ -210,6 +241,7 @@ export function AiEndpointForm({
             <Field
               label="Temperature"
               htmlFor={`endpoint-temperature-${prefix}`}
+              error={fieldError(state, "temperature")}
             >
               <Input
                 id={`endpoint-temperature-${prefix}`}
@@ -219,23 +251,33 @@ export function AiEndpointForm({
                 max="2"
                 step="0.1"
                 defaultValue={value?.temperature ?? 0.1}
+                aria-invalid={Boolean(fieldError(state, "temperature"))}
                 required
               />
             </Field>
-            <Field label="Maximum tokens" htmlFor={`endpoint-tokens-${prefix}`}>
+            <Field
+              label="Maximum tokens"
+              htmlFor={`endpoint-tokens-${prefix}`}
+              error={fieldError(state, "maxTokens")}
+            >
               <Input
                 id={`endpoint-tokens-${prefix}`}
                 name="maxTokens"
                 type="number"
                 min="128"
                 defaultValue={value?.maxTokens ?? 4096}
+                aria-invalid={Boolean(fieldError(state, "maxTokens"))}
                 required
               />
             </Field>
             <input type="hidden" name="batchSize" value="1" />
           </>
         )}
-        <Field label="Timeout (ms)" htmlFor={`endpoint-timeout-${prefix}`}>
+        <Field
+          label="Timeout (ms)"
+          htmlFor={`endpoint-timeout-${prefix}`}
+          error={fieldError(state, "timeoutMs")}
+        >
           <Input
             id={`endpoint-timeout-${prefix}`}
             name="timeoutMs"
@@ -243,10 +285,15 @@ export function AiEndpointForm({
             min="1000"
             max="300000"
             defaultValue={value?.timeoutMs ?? (embedding ? 120000 : 180000)}
+            aria-invalid={Boolean(fieldError(state, "timeoutMs"))}
             required
           />
         </Field>
-        <Field label="Retries" htmlFor={`endpoint-retries-${prefix}`}>
+        <Field
+          label="Retries"
+          htmlFor={`endpoint-retries-${prefix}`}
+          error={fieldError(state, "maxRetries")}
+        >
           <Input
             id={`endpoint-retries-${prefix}`}
             name="maxRetries"
@@ -254,6 +301,7 @@ export function AiEndpointForm({
             min="0"
             max="5"
             defaultValue={value?.maxRetries ?? 2}
+            aria-invalid={Boolean(fieldError(state, "maxRetries"))}
             required
           />
         </Field>
