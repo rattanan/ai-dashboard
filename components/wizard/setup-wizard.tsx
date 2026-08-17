@@ -10,7 +10,6 @@ import {
   Database,
   FileSpreadsheet,
   Gauge,
-  LayoutDashboard,
   LoaderCircle,
   LockKeyhole,
   Network,
@@ -32,10 +31,7 @@ import { Input, Textarea } from "@/components/ui/input";
 import { ServerOperationButton } from "./server-operation-button";
 import {
   createDatabaseDataSourceAction,
-  saveAppearanceAction,
   saveDataScopeAction,
-  saveObjectiveAction,
-  startAnalysisAction,
 } from "@/features/data-sources/actions";
 
 type SourceType = "MYSQL" | "POSTGRESQL" | "MSSQL" | "ORACLE" | "EXCEL";
@@ -63,31 +59,7 @@ type WizardSource = {
     }[];
   }[];
 };
-type WizardDashboard = {
-  id: string;
-  name: string;
-  businessArea: string | null;
-  businessObjective: string | null;
-  businessQuestions: string | null;
-  desiredKpis: string | null;
-  targetUsers: string | null;
-  reportingPeriod: string | null;
-  importantFilters: string | null;
-  layoutStyle: string;
-  visualStyle: string;
-  visualTheme: string;
-};
-
-const steps = [
-  "Welcome",
-  "Source",
-  "Details",
-  "Test",
-  "Scope",
-  "Objective",
-  "Appearance",
-  "Review",
-];
+const steps = ["Welcome", "Source", "Details", "Test", "Scope"];
 const sourceOptions: {
   type: SourceType;
   title: string;
@@ -142,14 +114,10 @@ export function SetupWizard({
   initialStep,
   initialType,
   source,
-  dashboard,
-  editMode = false,
 }: {
   initialStep: number;
   initialType?: SourceType;
   source?: WizardSource;
-  dashboard?: WizardDashboard;
-  editMode?: boolean;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -174,10 +142,10 @@ export function SetupWizard({
       ),
   );
   const connectionForm = useRef<HTMLFormElement>(null);
-  const step = Math.min(Math.max(initialStep, 1), 8);
+  const step = Math.min(Math.max(initialStep, 1), steps.length);
   const query = useMemo(
-    () => ({ id: source?.id, dashboard: dashboard?.id, type: selectedType }),
-    [source?.id, dashboard?.id, selectedType],
+    () => ({ id: source?.id, type: selectedType }),
+    [source?.id, selectedType],
   );
   const allTableIds =
     source?.schemas.flatMap((schema) =>
@@ -190,7 +158,6 @@ export function SetupWizard({
     });
     const merged = { ...query, ...overrides };
     if (merged.id) params.set("id", merged.id);
-    if (merged.dashboard) params.set("dashboard", merged.dashboard);
     router.push(`/workspace/data-sources/new?${params}`);
   }
   function run(task: () => Promise<void>) {
@@ -207,23 +174,23 @@ export function SetupWizard({
     <div className="mx-auto max-w-6xl">
       <div className="mb-7">
         <div className="mb-3 flex items-center justify-between text-xs font-medium text-muted-foreground">
-          <span>Step {step} of 8</span>
+          <span>Step {step} of {steps.length}</span>
           <span>{steps[step - 1]}</span>
         </div>
         <div
           className="h-2 overflow-hidden rounded-full bg-slate-200"
           role="progressbar"
           aria-valuemin={1}
-          aria-valuemax={8}
+          aria-valuemax={steps.length}
           aria-valuenow={step}
-          aria-label={`Step ${step} of 8`}
+          aria-label={`Step ${step} of ${steps.length}`}
         >
           <div
             className="h-full rounded-full bg-primary transition-[width] duration-200"
-            style={{ width: `${step * 12.5}%` }}
+            style={{ width: `${(step / steps.length) * 100}%` }}
           />
         </div>
-        <ol className="mt-4 hidden grid-cols-8 gap-2 lg:grid">
+        <ol className="mt-4 hidden grid-cols-5 gap-2 lg:grid">
           {steps.map((label, index) => (
             <li
               key={label}
@@ -237,8 +204,8 @@ export function SetupWizard({
       {step === 1 ? (
         <StepCard
           icon={<Sparkles />}
-          title="Create an AI-ready dashboard foundation"
-          description="This guided setup securely connects your data, discovers its structure, and captures the business objective for a future AI analysis."
+          title="Create an AI-ready data source"
+          description="This guided setup securely connects your data, verifies access, discovers its structure, and saves the governed scope available to AI features."
         >
           <div className="grid gap-3 sm:grid-cols-3">
             <Trust
@@ -252,9 +219,9 @@ export function SetupWizard({
               text="Choose only relevant data."
             />
             <Trust
-              icon={<LayoutDashboard />}
-              title="Configuration versioned"
-              text="Review before analysis."
+              icon={<CheckCircle2 />}
+              title="Governed scope"
+              text="Finish after selecting tables."
             />
           </div>
           <Footer onNext={() => go(2)} />
@@ -675,7 +642,7 @@ export function SetupWizard({
         <StepCard
           icon={<Table2 />}
           title="Select data scope"
-          description="Choose the tables and views relevant to this dashboard. Discovery reads only the database metadata views."
+          description="Choose the governed tables and views available to AI features. Discovery reads only database metadata."
         >
           {source.type === "MYSQL" || source.type === "ORACLE" ? (
             <>
@@ -692,9 +659,9 @@ export function SetupWizard({
                   <span>
                     <strong>Let AI prioritize important tables</strong>
                     <span className="mt-1 block text-blue-800">
-                      The analysis will rank discovered Oracle objects using
-                      your dashboard objective, relationships, and columns. Turn
-                      this off to choose the scope yourself.
+                      AI features will rank discovered Oracle objects using
+                      relationships, columns, and metadata. Turn this off to
+                      choose the scope yourself.
                     </span>
                   </span>
                 </label>
@@ -797,7 +764,7 @@ export function SetupWizard({
                       autoPrioritizeTables,
                     );
                     if (!result.ok) return setMessage(result.error.message);
-                    go(6);
+                    router.push(`/workspace/data-sources/${source.id}`);
                   })
                 }
               >
@@ -806,7 +773,7 @@ export function SetupWizard({
                 ) : (
                   <Check size={17} />
                 )}
-                Save selected scope
+                Save scope and finish
               </Button>
             </>
           ) : source.type === "EXCEL" ? (
@@ -837,275 +804,16 @@ export function SetupWizard({
             onNext={
               source.type === "MYSQL" || source.type === "ORACLE"
                 ? undefined
-                : () => go(6)
+                : () => router.push(`/workspace/data-sources/${source.id}`)
             }
+            nextLabel="Finish setup"
           />
-        </StepCard>
-      ) : null}
-      {step === 6 && source ? (
-        <StepCard
-          icon={<Sparkles />}
-          title="Describe the dashboard objective"
-          description="Give the future AI analysis clear business context and questions to answer."
-        >
-          <form
-            onSubmit={(event) => {
-              event.preventDefault();
-              const values = Object.fromEntries(
-                new FormData(event.currentTarget),
-              );
-              run(async () => {
-                const result = await saveObjectiveAction({
-                  ...values,
-                  dataSourceId: source.id,
-                  dashboardId: dashboard?.id,
-                });
-                if (!result.ok) return setMessage(result.error.message);
-                go(7, { dashboard: result.data.dashboardId });
-              });
-            }}
-            className="grid gap-5 sm:grid-cols-2"
-          >
-            <Field label="Dashboard name" htmlFor="dashboard-name" required>
-              <Input
-                id="dashboard-name"
-                name="name"
-                defaultValue={dashboard?.name ?? ""}
-                placeholder="Revenue operations overview"
-                required
-              />
-            </Field>
-            <Field label="Business area" htmlFor="businessArea" required>
-              <Input
-                id="businessArea"
-                name="businessArea"
-                defaultValue={dashboard?.businessArea ?? ""}
-                placeholder="Sales operations"
-                required
-              />
-            </Field>
-            <Field
-              label="Business objective"
-              htmlFor="businessObjective"
-              required
-              className="sm:col-span-2"
-              hint="Example: Monitor sales pipeline and revenue forecast."
-            >
-              <Textarea
-                id="businessObjective"
-                name="businessObjective"
-                defaultValue={dashboard?.businessObjective ?? ""}
-                minLength={20}
-                required
-              />
-            </Field>
-            <Field label="Business questions" htmlFor="businessQuestions">
-              <Textarea
-                id="businessQuestions"
-                name="businessQuestions"
-                defaultValue={dashboard?.businessQuestions ?? ""}
-                placeholder="Where is pipeline coverage at risk?"
-              />
-            </Field>
-            <Field label="Desired KPIs" htmlFor="desiredKpis">
-              <Textarea
-                id="desiredKpis"
-                name="desiredKpis"
-                defaultValue={dashboard?.desiredKpis ?? ""}
-                placeholder="Bookings, win rate, forecast accuracy"
-              />
-            </Field>
-            <Field label="Target users" htmlFor="targetUsers">
-              <Input
-                id="targetUsers"
-                name="targetUsers"
-                defaultValue={dashboard?.targetUsers ?? ""}
-                placeholder="VP Sales and regional managers"
-              />
-            </Field>
-            <Field label="Reporting period" htmlFor="reportingPeriod">
-              <Input
-                id="reportingPeriod"
-                name="reportingPeriod"
-                defaultValue={dashboard?.reportingPeriod ?? ""}
-                placeholder="Current quarter, weekly refresh"
-              />
-            </Field>
-            <Field
-              label="Important filters"
-              htmlFor="importantFilters"
-              className="sm:col-span-2"
-            >
-              <Input
-                id="importantFilters"
-                name="importantFilters"
-                defaultValue={dashboard?.importantFilters ?? ""}
-                placeholder="Region, segment, owner, product"
-              />
-            </Field>
-            <Button className="sm:col-span-2 sm:w-fit" disabled={pending}>
-              {pending ? (
-                <LoaderCircle size={18} className="animate-spin" />
-              ) : null}
-              Save objective
-            </Button>
-          </form>
-          {message ? (
-            <p className="mt-3 text-sm text-destructive">{message}</p>
-          ) : null}
-          <Footer
-            onBack={() =>
-              editMode && dashboard
-                ? router.push(`/workspace/dashboards/${dashboard.id}`)
-                : go(5)
-            }
-          />
-        </StepCard>
-      ) : null}
-      {step === 7 && dashboard ? (
-        <StepCard
-          icon={<LayoutDashboard />}
-          title="Choose layout and visual direction"
-          description="These choices configure the dashboard shell. No charts are generated in Phase 0."
-        >
-          <form
-            onSubmit={(event) => {
-              event.preventDefault();
-              const values = Object.fromEntries(
-                new FormData(event.currentTarget),
-              );
-              run(async () => {
-                const result = await saveAppearanceAction({
-                  ...values,
-                  dashboardId: dashboard.id,
-                });
-                if (!result.ok) return setMessage(result.error.message);
-                go(8);
-              });
-            }}
-            className="space-y-6"
-          >
-            <ChoiceGroup
-              name="layoutStyle"
-              label="Layout"
-              defaultValue={dashboard.layoutStyle}
-              options={[
-                "EXECUTIVE_OVERVIEW",
-                "OPERATIONAL_MONITORING",
-                "ANALYTICAL_EXPLORER",
-                "CONTROL_CENTER",
-                "CUSTOM",
-              ]}
-            />
-            <ChoiceGroup
-              name="visualStyle"
-              label="Visual style"
-              defaultValue={dashboard.visualStyle}
-              options={[
-                "CLEAN_PROFESSIONAL",
-                "MODERN_ENTERPRISE",
-                "MINIMAL_LIGHT",
-                "DARK_CONTROL_ROOM",
-                "DATA_DENSE",
-              ]}
-            />
-            <ChoiceGroup
-              name="visualTheme"
-              label="Theme"
-              defaultValue={dashboard.visualTheme}
-              options={["BLUE", "EMERALD", "AMBER", "SLATE", "CUSTOM"]}
-              themes
-            />
-            <Button disabled={pending}>
-              {pending ? (
-                <LoaderCircle size={18} className="animate-spin" />
-              ) : null}
-              Save appearance
-            </Button>
-          </form>
-          {message ? (
-            <p className="mt-3 text-sm text-destructive">{message}</p>
-          ) : null}
-          <Footer onBack={() => go(6)} />
-        </StepCard>
-      ) : null}
-      {step === 8 && source && dashboard ? (
-        <StepCard
-          icon={<CheckCircle2 />}
-          title="Review your configuration"
-          description="Confirm the governed data source and business context before creating the analysis placeholder."
-        >
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Review
-              label="Data source"
-              value={`${source.name} · ${source.type}`}
-            />
-            <Review label="Connection" value={source.status} />
-            <Review
-              label="Selected tables"
-              value={
-                source.type === "MYSQL" || source.type === "ORACLE"
-                  ? `${source.schemas.flatMap((s) => s.tables).filter((t) => t.selected).length} selected`
-                  : `${source.sheetNames?.length ?? 0} sheets detected`
-              }
-            />
-            <Review label="Dashboard" value={dashboard.name} />
-            <Review
-              label="Objective"
-              value={dashboard.businessObjective || "Not specified"}
-              wide
-            />
-            <Review
-              label="Layout"
-              value={dashboard.layoutStyle.replaceAll("_", " ")}
-            />
-            <Review
-              label="Style and theme"
-              value={`${dashboard.visualStyle.replaceAll("_", " ")} · ${dashboard.visualTheme}`}
-            />
-          </div>
-          <div className="mt-6 rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
-            Starting analysis creates a persistent job and changes the dashboard
-            status to <strong>ANALYZING</strong>. Each bounded stage is saved so
-            failed work can be reviewed and safely retried.
-          </div>
-          <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-between">
-            <Button variant="outline" onClick={() => go(7)}>
-              <ArrowLeft size={17} />
-              Back
-            </Button>
-            <Button
-              disabled={pending}
-              onClick={() =>
-                run(async () => {
-                  const result = await startAnalysisAction(dashboard.id);
-                  if (result && !result.ok) setMessage(result.error.message);
-                })
-              }
-            >
-              {pending ? (
-                <LoaderCircle size={18} className="animate-spin" />
-              ) : (
-                <Sparkles size={18} />
-              )}
-              Start AI Analysis
-            </Button>
-          </div>
-          {message ? (
-            <p className="mt-3 text-sm text-destructive">{message}</p>
-          ) : null}
         </StepCard>
       ) : null}
       {step > 3 && !source ? (
         <MissingState
           go={() => go(2)}
           label="The setup link is missing its data source. Select a source to continue."
-        />
-      ) : null}
-      {step > 6 && !dashboard ? (
-        <MissingState
-          go={() => go(6)}
-          label="The setup link is missing its dashboard draft. Complete the objective to continue."
         />
       ) : null}
     </div>
@@ -1192,29 +900,25 @@ function Trust({
 function ConnectionSummary({ source }: { source: WizardSource }) {
   return (
     <div className="mb-6 grid gap-3 rounded-xl border bg-slate-50 p-4 sm:grid-cols-2">
-      <Review label="Connection" value={source.name} />
-      <Review label="Type" value={source.type} />
-      <Review
+      <SummaryItem label="Connection" value={source.name} />
+      <SummaryItem label="Type" value={source.type} />
+      <SummaryItem
         label={source.type === "EXCEL" ? "File" : "Host"}
         value={source.fileName || source.host || "—"}
       />
-      <Review label="Status" value={source.status} />
+      <SummaryItem label="Status" value={source.status} />
     </div>
   );
 }
-function Review({
+function SummaryItem({
   label,
   value,
-  wide,
 }: {
   label: string;
   value: string;
-  wide?: boolean;
 }) {
   return (
-    <div
-      className={`rounded-lg border bg-slate-50 p-4 ${wide ? "sm:col-span-2" : ""}`}
-    >
+    <div className="rounded-lg border bg-slate-50 p-4">
       <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
         {label}
       </p>
@@ -1222,55 +926,6 @@ function Review({
         {value.toLowerCase()}
       </p>
     </div>
-  );
-}
-function ChoiceGroup({
-  name,
-  label,
-  options,
-  defaultValue,
-  themes,
-}: {
-  name: string;
-  label: string;
-  options: string[];
-  defaultValue: string;
-  themes?: boolean;
-}) {
-  const colors: Record<string, string> = {
-    BLUE: "bg-blue-700",
-    EMERALD: "bg-emerald-700",
-    AMBER: "bg-amber-600",
-    SLATE: "bg-slate-700",
-    CUSTOM: "bg-white border",
-  };
-  return (
-    <fieldset>
-      <legend className="mb-3 text-sm font-semibold">{label}</legend>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {options.map((option) => (
-          <label
-            key={option}
-            className="flex min-h-12 cursor-pointer items-center gap-3 rounded-lg border px-4 hover:bg-muted has-[:checked]:border-primary has-[:checked]:bg-blue-50"
-          >
-            <input
-              type="radio"
-              name={name}
-              value={option}
-              defaultChecked={option === defaultValue}
-              className="size-4 accent-primary"
-              required
-            />
-            {themes ? (
-              <span className={`size-5 rounded-full ${colors[option]}`} />
-            ) : null}
-            <span className="text-sm font-medium capitalize">
-              {option.replaceAll("_", " ").toLowerCase()}
-            </span>
-          </label>
-        ))}
-      </div>
-    </fieldset>
   );
 }
 function MissingState({ go, label }: { go: () => void; label: string }) {

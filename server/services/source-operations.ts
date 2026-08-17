@@ -466,15 +466,30 @@ export async function reindexSource(
 ) {
   const source = await managedSource(context, sourceId);
   if (!source) return failure("NOT_FOUND", "Knowledge source not found.");
-  const jobs = await db.documentIndexJob.findMany({
-    where: {
-      documentVersion: {
-        currentFor: { sourceId, active: true },
+  const documents = await db.document.findMany({
+    where: { sourceId, active: true },
+    select: {
+      versions: {
+        orderBy: { version: "desc" },
+        take: 1,
+        select: {
+          indexJobs: {
+            where: {
+              status: {
+                in: ["COMPLETED", "FAILED", "DEAD_LETTER", "CANCELLED"],
+              },
+            },
+            orderBy: { updatedAt: "desc" },
+            take: 1,
+            select: { id: true },
+          },
+        },
       },
-      status: { in: ["COMPLETED", "FAILED", "DEAD_LETTER", "CANCELLED"] },
     },
-    select: { id: true },
   });
+  const jobs = documents.flatMap(
+    (document) => document.versions[0]?.indexJobs ?? [],
+  );
   let queued = 0;
   for (const job of jobs) {
     const result = await retryIndexJob(context, job.id);

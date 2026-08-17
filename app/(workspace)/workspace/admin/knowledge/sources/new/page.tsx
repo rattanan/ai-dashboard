@@ -7,6 +7,8 @@ import { PageHeader } from "@/components/ui/page-header";
 import { requireAuthorization } from "@/server/auth/authorization";
 import { requirePermission } from "@/server/auth/permissions";
 import { db } from "@/server/db";
+import { configuredSharedRoots } from "@/packages/knowledge/source-security";
+import { env } from "@/schemas/env";
 
 export default async function NewOperationalSourcePage() {
   const context = await requireAuthorization();
@@ -16,6 +18,9 @@ export default async function NewOperationalSourcePage() {
     select: { id: true, name: true },
     orderBy: { name: "asc" },
   });
+  const sharedFolderRoots = configuredSharedRoots(
+    env().KNOWLEDGE_SHARED_FOLDER_ROOTS,
+  );
 
   return (
     <div className="space-y-6">
@@ -38,7 +43,10 @@ export default async function NewOperationalSourcePage() {
           <p className="mb-5 text-sm text-muted-foreground">
             Only allowlisted, canonical worker paths are accepted.
           </p>
-          <SharedFolderSourceForm racks={racks} />
+          <SharedFolderSourceForm
+            racks={racks}
+            allowedRoots={sharedFolderRoots}
+          />
         </section>
         <section className="rounded-xl border bg-card p-5 sm:p-6">
           <h2 className="mb-1 font-semibold">Add web page</h2>

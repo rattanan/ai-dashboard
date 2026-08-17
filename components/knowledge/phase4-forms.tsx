@@ -87,7 +87,13 @@ function RackSelect({ id, racks }: { id: string; racks: RackChoice[] }) {
   );
 }
 
-export function SharedFolderSourceForm({ racks }: { racks: RackChoice[] }) {
+export function SharedFolderSourceForm({
+  racks,
+  allowedRoots,
+}: {
+  racks: RackChoice[];
+  allowedRoots: string[];
+}) {
   const [state, action, pending] = useActionState(
     createSharedFolderSourceAction,
     null,
@@ -108,13 +114,13 @@ export function SharedFolderSourceForm({ racks }: { racks: RackChoice[] }) {
           <Input
             id="folder-path"
             name="rootPath"
-            placeholder="/mnt/insightkm-knowledge/policies"
+            placeholder={`${allowedRoots[0] ?? "/mnt/insightkm-knowledge"}/policies`}
             required
           />
         </Field>
         <p className="mt-1 text-xs text-muted-foreground">
-          The worker reads only canonical paths under
-          KNOWLEDGE_SHARED_FOLDER_ROOTS. Symbolic links are rejected.
+          Allowed root{allowedRoots.length === 1 ? "" : "s"}: {" "}
+          {allowedRoots.join(", ")}. Symbolic links are rejected.
         </p>
       </div>
       <Field label="Maximum files per scan" htmlFor="folder-max-files">
