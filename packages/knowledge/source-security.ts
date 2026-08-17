@@ -6,7 +6,7 @@ import { request as httpsRequest } from "node:https";
 import { isIP } from "node:net";
 import { lookup } from "node:dns/promises";
 import path from "node:path";
-import { isSupportedDocument } from "./document-parser";
+import { isSupportedDocument } from "./document-types";
 
 export class SourceSecurityError extends Error {
   constructor(

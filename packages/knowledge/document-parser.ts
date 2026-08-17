@@ -1,7 +1,12 @@
 import { createHash } from "node:crypto";
 import mammoth from "mammoth";
-import { PDFParse } from "pdf-parse";
 import * as XLSX from "xlsx";
+import {
+  documentExtension,
+  isSupportedDocument,
+} from "./document-types";
+
+export { documentExtension, isSupportedDocument } from "./document-types";
 
 export const PARSER_VERSION = "insightkm-parser-v1";
 export const CHUNKING_VERSION = "insightkm-chunker-v1";
@@ -15,26 +20,6 @@ export type ParsedDocument = {
   sections: ParsedSection[];
   parserVersion: typeof PARSER_VERSION;
 };
-
-const supportedExtensions = new Set([
-  "pdf",
-  "docx",
-  "xlsx",
-  "csv",
-  "txt",
-  "md",
-  "markdown",
-  "html",
-  "htm",
-]);
-
-export function documentExtension(fileName: string) {
-  return fileName.split(".").pop()?.toLowerCase() ?? "";
-}
-
-export function isSupportedDocument(fileName: string) {
-  return supportedExtensions.has(documentExtension(fileName));
-}
 
 function normalizeText(value: string) {
   return value
@@ -77,7 +62,7 @@ export async function parseDocument(
   fileName: string,
 ): Promise<ParsedDocument> {
   const extension = documentExtension(fileName);
-  if (!supportedExtensions.has(extension))
+  if (!isSupportedDocument(fileName))
     throw new Error("Unsupported document type");
   let sections: ParsedSection[] = [];
   if (["txt", "md", "markdown"].includes(extension)) {
@@ -88,6 +73,7 @@ export async function parseDocument(
     const result = await mammoth.extractRawText({ buffer: bytes });
     sections = textSections(result.value);
   } else if (extension === "pdf") {
+    const { PDFParse } = await import("pdf-parse");
     const parser = new PDFParse({ data: bytes });
     try {
       const result = await parser.getText();

@@ -4,7 +4,7 @@ import type { AuthorizationContext } from "@/server/auth/authorization";
 import { requireKnowledgeRackAccess } from "@/server/auth/knowledge-access";
 import { db } from "@/server/db";
 import { env } from "@/schemas/env";
-import { isSupportedDocument } from "@/packages/knowledge/document-parser";
+import { isSupportedDocument } from "@/packages/knowledge/document-types";
 import { LocalObjectStorageService } from "@/server/storage/local-storage";
 import { enqueueDocumentIndexJob } from "@/server/services/job-queue";
 import { failure, success } from "@/types/result";
