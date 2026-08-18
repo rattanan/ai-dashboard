@@ -73,6 +73,20 @@ describe("Phase 6 Legacy API registry contracts", () => {
     ).toBe(true);
   });
 
+  it("removes accidental surrounding whitespace from a query API key", () => {
+    const parsed = legacyApiRegistrySchema.safeParse(
+      registry({
+        authType: "QUERY_API_KEY",
+        queryApiKeyName: "appid",
+        queryApiKey: "  key-value\t",
+      }),
+    );
+
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(parsed.data.queryApiKey).toBe("key-value");
+  });
+
   it("rejects write-like POST registration and plaintext auth headers", () => {
     expect(
       legacyApiRegistrySchema.safeParse(

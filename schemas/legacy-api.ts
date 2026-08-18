@@ -119,7 +119,7 @@ export const legacyApiRegistrySchema = z
       .trim()
       .regex(/^[A-Za-z][A-Za-z0-9_.-]{0,127}$/)
       .optional(),
-    queryApiKey: z.string().max(8_000).optional(),
+    queryApiKey: z.string().trim().max(8_000).optional(),
     bearerToken: z.string().max(16_000).optional(),
     basicUsername: z.string().max(1_000).optional(),
     basicPassword: z.string().max(8_000).optional(),

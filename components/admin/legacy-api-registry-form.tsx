@@ -239,7 +239,10 @@ export function LegacyApiRegistryForm({
       }
       for (const [parameterName, rawValue] of url.searchParams) {
         if (secretQueryName.test(parameterName)) {
-          discoveredSecret = { name: parameterName, value: rawValue };
+          discoveredSecret = {
+            name: parameterName,
+            value: rawValue.trim(),
+          };
           continue;
         }
         const placeholder = /^\{[^}]+\}$/.test(rawValue);
