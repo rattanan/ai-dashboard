@@ -80,14 +80,17 @@ export async function saveLegacyApiAction(_state: unknown, formData: FormData) {
     enabled: formData.get("enabled"),
     priority: formData.get("priority"),
   });
-  if (!assignment.success)
-    return failure(
-      "VALIDATION_ERROR",
-      "Check the API scope and bot assignments.",
-      {
-        fieldErrors: assignment.error.flatten().fieldErrors,
-      },
-    );
+  if (!assignment.success) {
+    const fieldErrors = assignment.error.flatten().fieldErrors;
+    const message =
+      fieldErrors.botIds?.[0] ??
+      fieldErrors.scope?.[0] ??
+      fieldErrors.priority?.[0] ??
+      "Check the API scope and bot assignments.";
+    return failure("VALIDATION_ERROR", message, {
+      fieldErrors,
+    });
+  }
   await requirePermission(context, "bot.manage");
   const result = await saveLegacyApi(context, parsed.data);
   if (result.ok) {

@@ -189,6 +189,12 @@ export function LegacyApiRegistryForm({
   const [authType, setAuthType] = useState<AuthType>(value?.authType ?? "NONE");
   const [queryApiKeyName, setQueryApiKeyName] = useState("appid");
   const [queryApiKey, setQueryApiKey] = useState("");
+  const [sourceScope, setSourceScope] = useState<"GLOBAL" | "SELECTED_BOTS">(
+    value?.sourceScope ?? (bots.length === 0 ? "GLOBAL" : "SELECTED_BOTS"),
+  );
+  const [selectedBotIds, setSelectedBotIds] = useState<string[]>(
+    value?.botIds ?? [],
+  );
   const [discoveryError, setDiscoveryError] = useState("");
   const [tested, setTested] = useState(false);
   const [state, action, pending] = useActionState(saveLegacyApiAction, null);
@@ -216,6 +222,7 @@ export function LegacyApiRegistryForm({
       ),
     [testValues],
   );
+  const assignmentReady = sourceScope === "GLOBAL" || selectedBotIds.length > 0;
 
   function inspectEndpoint() {
     try {
@@ -799,7 +806,12 @@ export function LegacyApiRegistryForm({
                 <select
                   id={`scope-${prefix}`}
                   name="sourceScope"
-                  defaultValue={value?.sourceScope ?? "SELECTED_BOTS"}
+                  value={sourceScope}
+                  onChange={(event) =>
+                    setSourceScope(
+                      event.target.value as "GLOBAL" | "SELECTED_BOTS",
+                    )
+                  }
                   className="min-h-11 w-full rounded-lg border bg-background px-3"
                 >
                   <option value="SELECTED_BOTS">Selected bots</option>
@@ -817,7 +829,10 @@ export function LegacyApiRegistryForm({
                 />
               </Field>
             </div>
-            <fieldset className="rounded-xl border p-4">
+            <fieldset
+              className="rounded-xl border p-4"
+              aria-describedby={`bot-assignment-help-${prefix}`}
+            >
               <legend className="px-1 text-sm font-medium">Assign bots</legend>
               <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                 {bots.map((bot) => (
@@ -829,12 +844,35 @@ export function LegacyApiRegistryForm({
                       type="checkbox"
                       name="botIds"
                       value={bot.id}
-                      defaultChecked={value?.botIds.includes(bot.id)}
+                      checked={selectedBotIds.includes(bot.id)}
+                      disabled={sourceScope === "GLOBAL"}
+                      onChange={(event) =>
+                        setSelectedBotIds((current) =>
+                          event.target.checked
+                            ? [...new Set([...current, bot.id])]
+                            : current.filter((id) => id !== bot.id),
+                        )
+                      }
                     />
                     {bot.name}
                   </label>
                 ))}
               </div>
+              <p
+                id={`bot-assignment-help-${prefix}`}
+                className={cn(
+                  "mt-3 text-sm",
+                  !assignmentReady
+                    ? "text-amber-700 dark:text-amber-300"
+                    : "text-muted-foreground",
+                )}
+              >
+                {sourceScope === "GLOBAL"
+                  ? "This tool will be available to all eligible bots."
+                  : selectedBotIds.length > 0
+                    ? `${selectedBotIds.length} bot${selectedBotIds.length === 1 ? "" : "s"} selected.`
+                    : "Select at least one bot, or change Scope to All eligible bots."}
+              </p>
             </fieldset>
             <label className="flex min-h-11 items-center gap-3 rounded-xl border px-4 text-sm">
               <input
@@ -886,7 +924,9 @@ export function LegacyApiRegistryForm({
               </Button>
               <Button
                 type="submit"
-                disabled={pending || !tested || !testState?.ok}
+                disabled={
+                  pending || !tested || !testState?.ok || !assignmentReady
+                }
               >
                 <Save size={17} />
                 {pending
