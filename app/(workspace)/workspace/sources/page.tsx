@@ -11,12 +11,13 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/ui/page-header";
 import { SourceAssignmentForm } from "@/components/sources/source-forms";
+import { AddKnowledgeWizard } from "@/components/sources/add-knowledge-wizard";
 import { KnowledgeSourceActions } from "@/components/sources/knowledge-source-actions";
 import { requireAuthorization } from "@/server/auth/authorization";
 import { hasPermission } from "@/server/auth/permissions";
 import { db } from "@/server/db";
 
-export const metadata = { title: "Sources" };
+export const metadata = { title: "All knowledge" };
 
 type UnifiedSource = {
   id: string;
@@ -81,7 +82,7 @@ export default async function SourcesPage({
   ]);
   if (!canKnowledge && !canDatabases && !canApiTools)
     throw new Error("FORBIDDEN");
-  const [knowledge, databases, apiTools, bots] = await Promise.all([
+  const [knowledge, databases, apiTools, bots, folders] = await Promise.all([
     canKnowledge
       ? db.knowledgeSource.findMany({
           where: { rack: { organizationId: context.organizationId } },
@@ -142,6 +143,13 @@ export default async function SourcesPage({
     canBots
       ? db.bot.findMany({
           where: { organizationId: context.organizationId },
+          select: { id: true, name: true },
+          orderBy: { name: "asc" },
+        })
+      : Promise.resolve([]),
+    canKnowledge
+      ? db.knowledgeRack.findMany({
+          where: { organizationId: context.organizationId, active: true },
           select: { id: true, name: true },
           orderBy: { name: "asc" },
         })
@@ -246,8 +254,17 @@ export default async function SourcesPage({
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Sources"
-        description="Govern web, files, copied text, live databases, and API tools in one ACL-aware catalog. Global means available only after the actor passes the existing resource ACL."
+        title="All knowledge"
+        description="Find and govern files, copied text, URLs, shared folders, live databases, and API tools in one place."
+        action={
+          canKnowledge ? (
+            <AddKnowledgeWizard
+              key={sources.length}
+              folders={folders}
+              bots={bots}
+            />
+          ) : undefined
+        }
       />
       <form className="grid gap-3 rounded-xl border bg-card p-4 md:grid-cols-[1fr_180px_180px_160px_auto]">
         <label className="relative">
@@ -313,7 +330,7 @@ export default async function SourcesPage({
       </form>
       <section className="space-y-4" aria-live="polite">
         <div className="flex items-center justify-between gap-3">
-          <h2 className="font-semibold">All sources</h2>
+          <h2 className="font-semibold">Knowledge library</h2>
           <p className="text-sm text-muted-foreground">
             {filtered.length} source(s)
           </p>

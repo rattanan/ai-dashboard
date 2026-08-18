@@ -106,7 +106,7 @@ const groups: Array<{ label: string; items: NavigationItem[] }> = [
     items: [
       {
         href: "/workspace/sources",
-        label: "Source Catalog",
+        label: "All knowledge",
         icon: LibraryBig,
         showAny: ["knowledgeManagement", "dataConnections", "legacyApis"],
         exact: true,

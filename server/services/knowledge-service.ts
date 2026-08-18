@@ -78,6 +78,7 @@ export async function uploadKnowledgeDocument(
   context: AuthorizationContext,
   rackId: string,
   file: File,
+  sourceId?: string,
 ) {
   await requireKnowledgeRackAccess(context, rackId, "UPLOAD");
   const configuration = env();
@@ -100,7 +101,11 @@ export async function uploadKnowledgeDocument(
     );
   const checksum = createHash("sha256").update(bytes).digest("hex");
   const source = await db.knowledgeSource.findFirst({
-    where: { rackId, rack: { organizationId: context.organizationId } },
+    where: {
+      rackId,
+      rack: { organizationId: context.organizationId },
+      ...(sourceId ? { id: sourceId, type: "FILE" as const } : {}),
+    },
     orderBy: { createdAt: "asc" },
   });
   if (!source) return failure("NOT_FOUND", "Knowledge source not found.");
@@ -225,6 +230,23 @@ export async function uploadKnowledgeDocument(
       return failure("CONFLICT", "This document version already exists.");
     throw error;
   }
+}
+
+export async function uploadKnowledgeSourceDocument(
+  context: AuthorizationContext,
+  sourceId: string,
+  file: File,
+) {
+  const source = await db.knowledgeSource.findFirst({
+    where: {
+      id: sourceId,
+      type: "FILE",
+      rack: { organizationId: context.organizationId },
+    },
+    select: { rackId: true },
+  });
+  if (!source) return failure("NOT_FOUND", "File source not found.");
+  return uploadKnowledgeDocument(context, source.rackId, file, sourceId);
 }
 
 export async function retryDocumentIndex(
