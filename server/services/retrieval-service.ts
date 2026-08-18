@@ -79,10 +79,34 @@ export async function retrieveBotContext(
             select: { id: true },
           })
           .then((items) => items.map((item) => ({ rackId: item.id })))
-      : await db.botKnowledgeRack.findMany({
-          where: { botId },
-          select: { rackId: true },
-        });
+      : await db.knowledgeRack
+          .findMany({
+            where: {
+              organizationId: context.organizationId,
+              active: true,
+              OR: [
+                { scope: "GLOBAL" },
+                { bots: { some: { botId } } },
+                {
+                  sources: {
+                    some: {
+                      active: true,
+                      OR: [
+                        { scope: "GLOBAL" },
+                        {
+                          botAssignments: {
+                            some: { botId, enabled: true },
+                          },
+                        },
+                      ],
+                    },
+                  },
+                },
+              ],
+            },
+            select: { id: true },
+          })
+          .then((items) => items.map((item) => ({ rackId: item.id })));
   const rackDecisions = await Promise.all(
     rackAssignments.map(async ({ rackId }) => ({
       rackId,
@@ -125,7 +149,7 @@ export async function retrieveBotContext(
         WHERE br."rackId" = r.id AND br."botId" = $1
           AND NOT EXISTS (
             SELECT 1 FROM "BotKnowledgeSource" override
-            WHERE override."sourceId" = s.id AND override."botId" = $1
+            WHERE override."sourceId" = s.id
           )
       ))
       AND (cardinality($8::text[]) = 0 OR s.id = ANY($8::text[]))`;

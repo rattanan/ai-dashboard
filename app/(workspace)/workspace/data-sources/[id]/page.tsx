@@ -55,6 +55,9 @@ export default async function DataSourceDetailPage({
     0,
   );
   const isDatabase = databaseTypes.has(source.type);
+  const discoveredSchemas = source.schemas.filter(
+    (schema) => schema.tables.length > 0,
+  );
   const diff = metadataDiff(source.lastMetadataDiff);
   return (
     <div className="space-y-7">
@@ -90,10 +93,21 @@ export default async function DataSourceDetailPage({
           {canManage ? (
             <Card>
               <CardHeader>
-                <CardTitle>Connection</CardTitle>
-                <CardDescription>
-                  Sanitized server-side configuration.
-                </CardDescription>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <CardTitle>Connection</CardTitle>
+                    <CardDescription>
+                      Sanitized server-side configuration.
+                    </CardDescription>
+                  </div>
+                  <Button asChild variant="outline" size="sm">
+                    <Link
+                      href={`/workspace/data-sources/new?step=3&type=${source.type}&id=${source.id}`}
+                    >
+                      Edit connection
+                    </Link>
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent className="grid gap-4 sm:grid-cols-2">
                 <Info label="Host" value={source.host || "—"} />
@@ -123,9 +137,9 @@ export default async function DataSourceDetailPage({
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {source.schemas.length ? (
+              {discoveredSchemas.length ? (
                 <div className="space-y-3">
-                  {source.schemas.map((schema) => (
+                  {discoveredSchemas.map((schema) => (
                     <details key={schema.id} className="rounded-lg border">
                       <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between px-4 font-medium">
                         <span>{schema.name}</span>
@@ -173,20 +187,21 @@ export default async function DataSourceDetailPage({
               )}
             </CardContent>
           </Card>
-          {canManage && isDatabase && source.schemas.length ? (
+          {canManage && isDatabase && discoveredSchemas.length ? (
             <Card>
               <CardHeader>
                 <CardTitle>Governed database scope</CardTitle>
                 <CardDescription>
-                  Choose the schemas, tables, views, and masked sample
-                  permissions available to AI features.
+                  Only selected tables can be queried by Chat and other AI
+                  features. Discovered tables remain unavailable until you
+                  explicitly add them here.
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 <DatabaseScopeForm
                   dataSourceId={source.id}
                   sampleDataEnabled={source.sampleDataEnabled}
-                  schemas={source.schemas.map((schema) => ({
+                  schemas={discoveredSchemas.map((schema) => ({
                     id: schema.id,
                     name: schema.name,
                     tables: schema.tables.map((table) => ({
@@ -233,7 +248,7 @@ export default async function DataSourceDetailPage({
               <Summary
                 icon={<Database />}
                 label="Schemas"
-                value={source.schemas.length}
+                value={discoveredSchemas.length}
               />
               <Summary
                 icon={<Table2 />}

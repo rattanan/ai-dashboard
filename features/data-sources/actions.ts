@@ -134,10 +134,10 @@ export async function saveDataScopeAction(
         sourceStatus: tableIds.length ? "READY" : "DRAFT",
         ...(source.type === "ORACLE"
           ? {
-          connectionOptions: {
-            ...connectionOptions,
-            autoPrioritizeTables,
-          } as Prisma.InputJsonValue,
+              connectionOptions: {
+                ...connectionOptions,
+                autoPrioritizeTables,
+              } as Prisma.InputJsonValue,
             }
           : {}),
       },

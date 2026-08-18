@@ -48,6 +48,16 @@ export function DatabaseScopeForm({
     }>;
   }>;
 }) {
+  const selectedTables = schemas.flatMap((schema) =>
+    schema.tables
+      .filter((table) => table.selected)
+      .map((table) => ({ ...table, schemaName: schema.name })),
+  );
+  const availableTables = schemas.flatMap((schema) =>
+    schema.tables
+      .filter((table) => !table.selected)
+      .map((table) => ({ ...table, schemaName: schema.name })),
+  );
   const [scopeState, scopeAction, scopePending] = useActionState(
     saveDatabaseScopeAction,
     null,
@@ -74,59 +84,40 @@ export function DatabaseScopeForm({
           default and are always masked by the organization privacy policy
           before AI use.
         </p>
-        <div className="max-h-[32rem] space-y-4 overflow-y-auto pr-1">
-          {schemas.map((schema) => (
-            <fieldset key={schema.id} className="rounded-lg border p-3">
-              <legend className="px-1 text-sm font-semibold">
-                {schema.name}
-              </legend>
+        <div className="space-y-4">
+          <div className="rounded-lg border p-3">
+            <h4 className="text-sm font-semibold">
+              Selected for Chat ({selectedTables.length})
+            </h4>
+            {selectedTables.length ? (
               <div className="mt-1 divide-y">
-                {schema.tables.map((table) => (
-                  <div
-                    key={table.id}
-                    className="grid gap-3 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start"
-                  >
-                    <label className="flex min-h-11 gap-3">
-                      <input
-                        type="checkbox"
-                        name="selectedTableIds"
-                        value={table.id}
-                        defaultChecked={table.selected}
-                        className="mt-1 size-4"
-                      />
-                      <span>
-                        <span className="block break-all text-sm font-medium">
-                          {table.name}
-                        </span>
-                        <span className="block text-xs text-muted-foreground">
-                          {table.tableType} · {table.columnCount} columns
-                        </span>
-                        {table.semanticDescription ? (
-                          <span className="mt-1 block text-xs text-muted-foreground">
-                            {table.semanticDescription}
-                          </span>
-                        ) : null}
-                      </span>
-                    </label>
-                    <label className="flex min-h-11 items-center gap-2 text-xs text-muted-foreground">
-                      <input
-                        type="checkbox"
-                        name="sampleTableIds"
-                        value={table.id}
-                        defaultChecked={table.sampleDataEnabled}
-                        className="size-4"
-                      />
-                      Allow sample
-                    </label>
-                  </div>
+                {selectedTables.map((table) => (
+                  <ScopeTableRow key={table.id} table={table} />
                 ))}
               </div>
-            </fieldset>
-          ))}
+            ) : (
+              <p className="mt-2 text-sm text-muted-foreground">
+                No tables selected. Add at least one table to enable database
+                questions in Chat.
+              </p>
+            )}
+          </div>
+          {availableTables.length ? (
+            <details className="rounded-lg border">
+              <summary className="min-h-11 cursor-pointer px-3 py-3 text-sm font-semibold">
+                Add more tables ({availableTables.length} discovered)
+              </summary>
+              <div className="max-h-[28rem] divide-y overflow-y-auto border-t px-3">
+                {availableTables.map((table) => (
+                  <ScopeTableRow key={table.id} table={table} />
+                ))}
+              </div>
+            </details>
+          ) : null}
         </div>
         <Feedback state={scopeState} />
         <Button disabled={scopePending}>
-          {scopePending ? "Saving scope…" : "Save governed scope"}
+          {scopePending ? "Saving scope…" : "Save tables for Chat"}
         </Button>
       </form>
       <form action={enrichAction} className="space-y-3 border-t pt-5">
@@ -145,6 +136,58 @@ export function DatabaseScopeForm({
             : "Generate semantic descriptions"}
         </Button>
       </form>
+    </div>
+  );
+}
+
+function ScopeTableRow({
+  table,
+}: {
+  table: {
+    id: string;
+    name: string;
+    schemaName: string;
+    tableType: string;
+    selected: boolean;
+    sampleDataEnabled: boolean;
+    semanticDescription: string | null;
+    columnCount: number;
+  };
+}) {
+  return (
+    <div className="grid gap-3 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
+      <label className="flex min-h-11 gap-3">
+        <input
+          type="checkbox"
+          name="selectedTableIds"
+          value={table.id}
+          defaultChecked={table.selected}
+          className="mt-1 size-4"
+        />
+        <span>
+          <span className="block break-all text-sm font-medium">
+            {table.schemaName}.{table.name}
+          </span>
+          <span className="block text-xs text-muted-foreground">
+            {table.tableType} · {table.columnCount} columns
+          </span>
+          {table.semanticDescription ? (
+            <span className="mt-1 block text-xs text-muted-foreground">
+              {table.semanticDescription}
+            </span>
+          ) : null}
+        </span>
+      </label>
+      <label className="flex min-h-11 items-center gap-2 text-xs text-muted-foreground">
+        <input
+          type="checkbox"
+          name="sampleTableIds"
+          value={table.id}
+          defaultChecked={table.sampleDataEnabled}
+          className="size-4"
+        />
+        Allow sample
+      </label>
     </div>
   );
 }

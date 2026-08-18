@@ -817,9 +817,3 @@ export async function enrichDatabaseMetadata(
     warnings,
   });
 }
-
-export function isLikelyDatabaseQuestion(question: string) {
-  return /\b(count|total|sum|average|avg|maximum|minimum|trend|revenue|sales|orders?|customers?|rows?|records?|how many)\b|จำนวน|ยอด|รวม|เฉลี่ย|สูงสุด|ต่ำสุด|แนวโน้ม|รายได้|คำสั่งซื้อ|ลูกค้า/iu.test(
-    question,
-  );
-}

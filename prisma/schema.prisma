@@ -962,6 +962,7 @@ model KnowledgeRack {
   name           String
   description    String?
   active         Boolean               @default(true)
+  scope          SourceScope           @default(SELECTED_BOTS)
   createdById    String
   organization   Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   createdBy      User                  @relation("KnowledgeRackCreator", fields: [createdById], references: [id])

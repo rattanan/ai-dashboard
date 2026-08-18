@@ -46,7 +46,16 @@ function sourceDescription(source: {
   return source.type;
 }
 
-export default async function KnowledgeSourcesPage() {
+export default async function KnowledgeSourcesPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const query = await searchParams;
+  const requestedType =
+    query.type === "WEB" || query.type === "SHARED_FOLDER"
+      ? query.type
+      : undefined;
   const context = await requireAuthorization();
   await requirePermission(context, "knowledge.manage");
   const racks = await db.knowledgeRack.findMany({
@@ -55,7 +64,9 @@ export default async function KnowledgeSourcesPage() {
       id: true,
       name: true,
       sources: {
-        where: { type: { in: ["SHARED_FOLDER", "WEB"] } },
+        where: requestedType
+          ? { type: requestedType }
+          : { type: { in: ["SHARED_FOLDER", "WEB"] } },
         include: {
           sharedFolderConfig: true,
           webConfig: true,
@@ -74,15 +85,39 @@ export default async function KnowledgeSourcesPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Operational knowledge sources"
-        description="Ingest pre-mounted folders and public web pages incrementally through the worker. The application process never mounts or crawls sources itself."
+        title={
+          requestedType === "WEB"
+            ? "Web page sources"
+            : requestedType === "SHARED_FOLDER"
+              ? "Shared folder sources"
+              : "Operational knowledge sources"
+        }
+        description={
+          requestedType === "WEB"
+            ? "Ingest public web pages incrementally with domain, redirect, DNS, size, and timeout controls."
+            : requestedType === "SHARED_FOLDER"
+              ? "Ingest files from allowlisted, pre-mounted worker folders without mounting paths from the application."
+              : "Ingest pre-mounted folders and public web pages incrementally through the worker."
+        }
         action={
-          <Link
-            href="/workspace/admin/knowledge/sources/new"
-            className="inline-flex min-h-11 items-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground"
-          >
-            Add source
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            {requestedType !== "WEB" ? (
+              <Link
+                href="/workspace/admin/knowledge/sources/new/shared-folder"
+                className="inline-flex min-h-11 items-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground"
+              >
+                Add shared folder
+              </Link>
+            ) : null}
+            {requestedType !== "SHARED_FOLDER" ? (
+              <Link
+                href="/workspace/admin/knowledge/sources/new/web-page"
+                className="inline-flex min-h-11 items-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground"
+              >
+                Add web page
+              </Link>
+            ) : null}
+          </div>
         }
       />
       <section className="rounded-xl border bg-card p-5">
@@ -176,7 +211,13 @@ export default async function KnowledgeSourcesPage() {
           })}
           {!sources.length ? (
             <p className="text-sm text-muted-foreground">
-              No operational sources configured yet.
+              No{" "}
+              {requestedType === "WEB"
+                ? "web page"
+                : requestedType === "SHARED_FOLDER"
+                  ? "shared folder"
+                  : "operational"}{" "}
+              sources configured yet.
             </p>
           ) : null}
         </div>

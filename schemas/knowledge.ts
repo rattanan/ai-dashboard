@@ -99,7 +99,24 @@ export const knowledgeRackSchema = z.object({
   description: z.string().trim().max(500).optional(),
   roleIds: z.array(z.string().min(1)).max(50),
   accessLevel: z.enum(["READ", "UPLOAD", "MANAGE"]),
+  scope: z.enum(["GLOBAL", "SELECTED_BOTS"]).default("SELECTED_BOTS"),
+  botIds: z.array(z.string().min(1)).max(200).default([]),
 });
+
+export const knowledgeFolderAccessSchema = z
+  .object({
+    rackId: z.string().min(1),
+    scope: z.enum(["GLOBAL", "SELECTED_BOTS"]),
+    botIds: z.array(z.string().min(1)).max(200),
+  })
+  .superRefine((value, context) => {
+    if (value.scope === "SELECTED_BOTS" && !value.botIds.length)
+      context.addIssue({
+        code: "custom",
+        path: ["botIds"],
+        message: "Select at least one bot",
+      });
+  });
 
 export const resourceIdSchema = z.object({ id: z.string().min(1) });
 

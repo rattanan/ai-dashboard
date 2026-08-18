@@ -17,20 +17,30 @@ export async function POST(request: Request) {
       },
       { status: 422 },
     );
-  const result = await sendUniversalChatMessage(context, parsed.data);
-  if (!result.ok)
+  try {
+    const result = await sendUniversalChatMessage(context, parsed.data);
+    if (!result.ok)
+      return Response.json(
+        { error: result.error.code, message: result.error.message },
+        {
+          status:
+            result.error.code === "NOT_FOUND"
+              ? 404
+              : result.error.code === "AI_RATE_LIMITED"
+                ? 429
+                : 400,
+        },
+      );
+    return Response.json(result.data, {
+      headers: { "cache-control": "no-store" },
+    });
+  } catch {
     return Response.json(
-      { error: result.error.code, message: result.error.message },
       {
-        status:
-          result.error.code === "NOT_FOUND"
-            ? 404
-            : result.error.code === "AI_RATE_LIMITED"
-              ? 429
-              : 400,
+        error: "INTERNAL_ERROR",
+        message: "The message could not be completed. Please try again.",
       },
+      { status: 500, headers: { "cache-control": "no-store" } },
     );
-  return Response.json(result.data, {
-    headers: { "cache-control": "no-store" },
-  });
+  }
 }

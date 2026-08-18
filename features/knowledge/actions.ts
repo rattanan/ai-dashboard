@@ -10,6 +10,7 @@ import {
   botConfigurationSchema,
   botAppearanceSchema,
   knowledgeRackSchema,
+  knowledgeFolderAccessSchema,
   resourceIdSchema,
 } from "@/schemas/knowledge";
 import { retryDocumentIndex } from "@/server/services/knowledge-service";
@@ -573,19 +574,34 @@ export async function createKnowledgeRackAction(
   const parsed = knowledgeRackSchema.safeParse({
     ...Object.fromEntries(formData),
     roleIds: formData.getAll("roleIds"),
+    botIds: formData.getAll("botIds"),
   });
   if (!parsed.success)
     return failure("VALIDATION_ERROR", "Check the knowledge rack details.", {
       fieldErrors: parsed.error.flatten().fieldErrors,
     });
-  const roleCount = await db.role.count({
-    where: {
-      id: { in: parsed.data.roleIds },
-      organizationId: context.organizationId,
-    },
-  });
-  if (roleCount !== new Set(parsed.data.roleIds).size)
-    return failure("VALIDATION_ERROR", "Knowledge rack roles are invalid.");
+  const [roleCount, botCount] = await Promise.all([
+    db.role.count({
+      where: {
+        id: { in: parsed.data.roleIds },
+        organizationId: context.organizationId,
+      },
+    }),
+    db.bot.count({
+      where: {
+        id: { in: parsed.data.botIds },
+        organizationId: context.organizationId,
+      },
+    }),
+  ]);
+  if (
+    roleCount !== new Set(parsed.data.roleIds).size ||
+    botCount !== new Set(parsed.data.botIds).size
+  )
+    return failure(
+      "VALIDATION_ERROR",
+      "Folder access contains an invalid role or bot.",
+    );
   try {
     const rack = await db.$transaction(async (tx) => {
       const created = await tx.knowledgeRack.create({
@@ -593,8 +609,8 @@ export async function createKnowledgeRackAction(
           organizationId: context.organizationId,
           name: parsed.data.name,
           description: parsed.data.description,
+          scope: parsed.data.scope,
           createdById: context.userId,
-          sources: { create: { name: "Files", type: "FILE" } },
           access: {
             create: [
               {
@@ -609,8 +625,31 @@ export async function createKnowledgeRackAction(
               })),
             ],
           },
+          bots:
+            parsed.data.scope === "SELECTED_BOTS" && parsed.data.botIds.length
+              ? {
+                  create: parsed.data.botIds.map((botId) => ({ botId })),
+                }
+              : undefined,
         },
       });
+      const defaultSource = await tx.knowledgeSource.create({
+        data: {
+          rackId: created.id,
+          name: "Files",
+          type: "FILE",
+          scope: parsed.data.scope,
+          createdById: context.userId,
+        },
+      });
+      if (parsed.data.scope === "SELECTED_BOTS" && parsed.data.botIds.length)
+        await tx.botKnowledgeSource.createMany({
+          data: parsed.data.botIds.map((botId, index) => ({
+            botId,
+            sourceId: defaultSource.id,
+            priority: 100 + index,
+          })),
+        });
       await tx.auditLog.create({
         data: {
           organizationId: context.organizationId,
@@ -629,6 +668,7 @@ export async function createKnowledgeRackAction(
       return created;
     });
     revalidatePath("/workspace/admin/knowledge");
+    revalidatePath("/workspace/admin/knowledge/access");
     return success({ id: rack.id });
   } catch {
     return failure(
@@ -636,6 +676,70 @@ export async function createKnowledgeRackAction(
       "A knowledge rack with this name already exists.",
     );
   }
+}
+
+export async function updateKnowledgeFolderAccessAction(
+  _state: unknown,
+  formData: FormData,
+) {
+  const context = await requireAuthorization();
+  await requirePermission(context, "knowledge.manage");
+  await requirePermission(context, "bot.manage");
+  const parsed = knowledgeFolderAccessSchema.safeParse({
+    ...Object.fromEntries(formData),
+    botIds: formData.getAll("botIds"),
+  });
+  if (!parsed.success)
+    return failure("VALIDATION_ERROR", "Check the folder access settings.", {
+      fieldErrors: parsed.error.flatten().fieldErrors,
+    });
+  const [rack, botCount] = await Promise.all([
+    db.knowledgeRack.findFirst({
+      where: {
+        id: parsed.data.rackId,
+        organizationId: context.organizationId,
+      },
+    }),
+    db.bot.count({
+      where: {
+        id: { in: parsed.data.botIds },
+        organizationId: context.organizationId,
+      },
+    }),
+  ]);
+  if (!rack) return failure("NOT_FOUND", "Folder not found.");
+  if (botCount !== new Set(parsed.data.botIds).size)
+    return failure(
+      "VALIDATION_ERROR",
+      "One or more selected bots are invalid.",
+    );
+  await db.$transaction(async (tx) => {
+    await tx.knowledgeRack.update({
+      where: { id: rack.id },
+      data: { scope: parsed.data.scope },
+    });
+    await tx.botKnowledgeRack.deleteMany({ where: { rackId: rack.id } });
+    if (parsed.data.scope === "SELECTED_BOTS" && parsed.data.botIds.length)
+      await tx.botKnowledgeRack.createMany({
+        data: parsed.data.botIds.map((botId) => ({ botId, rackId: rack.id })),
+      });
+    await tx.auditLog.create({
+      data: {
+        organizationId: context.organizationId,
+        workspaceId: context.workspaceId,
+        actorId: context.userId,
+        action: "KNOWLEDGE_FOLDER_ACCESS_UPDATED",
+        entityType: "KnowledgeRack",
+        entityId: rack.id,
+        entityName: rack.name,
+        beforeValue: { scope: rack.scope },
+        afterValue: { scope: parsed.data.scope, botIds: parsed.data.botIds },
+      },
+    });
+  });
+  revalidatePath("/workspace/admin/knowledge");
+  revalidatePath("/workspace/admin/knowledge/access");
+  return success({ id: rack.id });
 }
 
 export async function retryDocumentIndexAction(formData: FormData) {

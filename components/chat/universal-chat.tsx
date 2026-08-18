@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { submitMessageFeedbackAction } from "@/features/chat/actions";
+import { readJsonResponse } from "@/lib/http-response";
 
 type Message = {
   id: string;
@@ -120,16 +121,28 @@ export function UniversalChat({
           sourceIds: showSources ? sourceIds : [],
         }),
       });
-      const payload = await response.json();
+      const payload = await readJsonResponse<{
+        message?: string;
+        conversation?: { id: string };
+        userMessage?: { id: string; content: string };
+        assistantMessage?: Message;
+      }>(response, "The message could not be completed. Please try again.");
       if (!response.ok)
         throw new Error(
           payload.message ?? "The message could not be completed.",
         );
-      setConversationId(payload.conversation.id);
+      if (
+        !payload.conversation ||
+        !payload.userMessage ||
+        !payload.assistantMessage
+      )
+        throw new Error("The server returned an incomplete response.");
+      const { conversation, userMessage, assistantMessage } = payload;
+      setConversationId(conversation.id);
       setMessages((items) => [
         ...items.filter((item) => item.id !== optimistic.id),
-        { ...payload.userMessage, role: "USER", citations: [] },
-        payload.assistantMessage,
+        { ...userMessage, role: "USER", citations: [] },
+        assistantMessage,
       ]);
     } catch (reason) {
       setError(

@@ -8,29 +8,36 @@ import { db } from "@/server/db";
 export default async function NewKnowledgeRackPage() {
   const context = await requireAuthorization();
   await requirePermission(context, "knowledge.manage");
-  const roles = await db.role.findMany({
-    where: { organizationId: context.organizationId },
-    select: { id: true, name: true },
-    orderBy: { name: "asc" },
-  });
+  const [roles, bots] = await Promise.all([
+    db.role.findMany({
+      where: { organizationId: context.organizationId },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    }),
+    db.bot.findMany({
+      where: { organizationId: context.organizationId },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    }),
+  ]);
 
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Knowledge racks"
-        title="Create knowledge rack"
-        description="Create one access-controlled rack before adding documents and operational sources."
+        eyebrow="Knowledge Explorer"
+        title="Create knowledge folder"
+        description="Create a folder for related sources and choose which bots can access it."
         action={
           <Link
             href="/workspace/admin/knowledge"
             className="inline-flex min-h-11 items-center rounded-lg border px-4 text-sm font-medium"
           >
-            Back to racks
+            Back to Explorer
           </Link>
         }
       />
       <section className="rounded-xl border bg-card p-5 sm:p-6">
-        <KnowledgeRackForm roles={roles} />
+        <KnowledgeRackForm roles={roles} bots={bots} />
       </section>
     </div>
   );

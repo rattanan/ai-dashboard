@@ -76,6 +76,7 @@ export async function updateSourceAssignmentAction(
   if (result.ok) {
     revalidatePath("/workspace/sources");
     revalidatePath("/workspace/admin/bots");
+    revalidatePath("/workspace/admin/knowledge/access");
   }
   return result;
 }

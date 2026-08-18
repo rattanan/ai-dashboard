@@ -527,19 +527,52 @@ export function BotConfigurationForm({
   );
 }
 
-export function KnowledgeRackForm({ roles }: { roles: Choice[] }) {
+export function KnowledgeRackForm({
+  roles,
+  bots,
+}: {
+  roles: Choice[];
+  bots: Choice[];
+}) {
   const [state, action, pending] = useActionState(
     createKnowledgeRackAction,
     null,
   );
   return (
     <form action={action} className="grid gap-4 md:grid-cols-2">
-      <Field label="Rack name" htmlFor="rack-name" required>
+      <Field label="Folder name" htmlFor="rack-name" required>
         <Input id="rack-name" name="name" required />
       </Field>
       <Field label="Description" htmlFor="rack-description">
         <Input id="rack-description" name="description" />
       </Field>
+      <Field label="Bot access" htmlFor="folder-scope">
+        <select
+          id="folder-scope"
+          name="scope"
+          defaultValue="SELECTED_BOTS"
+          className="min-h-11 w-full rounded-lg border bg-white px-3"
+        >
+          <option value="GLOBAL">Shared — every bot</option>
+          <option value="SELECTED_BOTS">Specific bots only</option>
+        </select>
+      </Field>
+      <div className="md:col-span-2">
+        <fieldset>
+          <legend className="text-sm font-medium">Bots with access</legend>
+          <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {bots.map((bot) => (
+              <label
+                key={bot.id}
+                className="flex min-h-11 items-center gap-2 rounded-lg border bg-white px-3 text-sm"
+              >
+                <input type="checkbox" name="botIds" value={bot.id} />{" "}
+                {bot.name}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+      </div>
       <div className="md:col-span-2">
         <Field label="Roles granted access" htmlFor="rack-roleIds">
           <select
@@ -571,7 +604,7 @@ export function KnowledgeRackForm({ roles }: { roles: Choice[] }) {
       <div className="space-y-3 md:col-span-2">
         <ActionMessage state={state} />
         <Button disabled={pending}>
-          {pending ? "Creating…" : "Create knowledge rack"}
+          {pending ? "Creating…" : "Create folder"}
         </Button>
       </div>
     </form>

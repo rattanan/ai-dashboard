@@ -174,7 +174,7 @@ export default async function SourcesPage({
       href:
         source.type === "COPIED_TEXT"
           ? `/workspace/sources/copied-text/${source.id}/edit`
-          : "/workspace/admin/knowledge/sources",
+          : `/workspace/admin/knowledge/sources/${source.id}`,
       previewSummary: source.previewSummary,
     })),
     ...databases.map((source) => ({

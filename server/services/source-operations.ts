@@ -29,6 +29,11 @@ export async function createSharedFolderSource(
   },
 ) {
   await requireKnowledgeRackAccess(context, input.rackId, "MANAGE");
+  const folder = await db.knowledgeRack.findUnique({
+    where: { id: input.rackId },
+    select: { scope: true, bots: { select: { botId: true } } },
+  });
+  if (!folder) return failure("NOT_FOUND", "Knowledge folder not found.");
   const configuration = env();
   let canonicalPath: string;
   try {
@@ -50,6 +55,16 @@ export async function createSharedFolderSource(
           rackId: input.rackId,
           name: input.name,
           type: "SHARED_FOLDER",
+          scope: folder.scope,
+          botAssignments:
+            folder.scope === "SELECTED_BOTS" && folder.bots.length
+              ? {
+                  create: folder.bots.map((item, index) => ({
+                    botId: item.botId,
+                    priority: 100 + index,
+                  })),
+                }
+              : undefined,
           sharedFolderConfig: {
             create: {
               rootPath: canonicalPath,
@@ -141,6 +156,11 @@ export async function createWebSource(
   },
 ) {
   await requireKnowledgeRackAccess(context, input.rackId, "MANAGE");
+  const folder = await db.knowledgeRack.findUnique({
+    where: { id: input.rackId },
+    select: { scope: true, bots: { select: { botId: true } } },
+  });
+  if (!folder) return failure("NOT_FOUND", "Knowledge folder not found.");
   const configuration = env();
   const allowedDomains = [
     ...new Set(
@@ -166,6 +186,16 @@ export async function createWebSource(
           rackId: input.rackId,
           name: input.name,
           type: "WEB",
+          scope: folder.scope,
+          botAssignments:
+            folder.scope === "SELECTED_BOTS" && folder.bots.length
+              ? {
+                  create: folder.bots.map((item, index) => ({
+                    botId: item.botId,
+                    priority: 100 + index,
+                  })),
+                }
+              : undefined,
           webConfig: {
             create: {
               url: validated.url.href,

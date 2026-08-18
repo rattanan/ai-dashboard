@@ -11,6 +11,7 @@ import type {
 import { LocalObjectStorageService } from "@/server/storage/local-storage";
 import { enqueueDocumentIndexJob } from "@/server/services/job-queue";
 import { activeAiEndpoint } from "@/server/services/ai-endpoint-service";
+import { logger } from "@/server/services/logger";
 import { failure, success } from "@/types/result";
 import type { z } from "zod";
 
@@ -394,4 +395,156 @@ export async function archiveKnowledgeSource(
     }),
   ]);
   return success({ archived: true as const });
+}
+
+async function deleteStoredKnowledgeObjects(
+  keys: string[],
+  context: { requestId: string; entityId: string; entityType: string },
+) {
+  if (!keys.length) return;
+  const configuration = env();
+  if (configuration.OBJECT_STORAGE_DRIVER !== "local") {
+    logger.warn(
+      "Deleted knowledge records left object-storage cleanup pending",
+      {
+        ...context,
+        objectCount: keys.length,
+        storageDriver: configuration.OBJECT_STORAGE_DRIVER,
+      },
+    );
+    return;
+  }
+  const storage = new LocalObjectStorageService(
+    path.resolve(configuration.LOCAL_STORAGE_PATH),
+  );
+  const results = await Promise.allSettled(
+    keys.map((key) => storage.delete(key)),
+  );
+  const failedCount = results.filter(
+    (result) => result.status === "rejected",
+  ).length;
+  if (failedCount)
+    logger.error("Deleted knowledge records left object-storage orphans", {
+      ...context,
+      objectCount: keys.length,
+      failedCount,
+    });
+}
+
+export async function deleteKnowledgeSource(
+  context: AuthorizationContext,
+  sourceId: string,
+  confirmationName: string,
+) {
+  const source = await db.knowledgeSource.findFirst({
+    where: {
+      id: sourceId,
+      rack: { organizationId: context.organizationId },
+    },
+    include: {
+      documents: {
+        select: { versions: { select: { storageKey: true } } },
+      },
+      _count: { select: { documents: true } },
+    },
+  });
+  if (!source) return failure("NOT_FOUND", "Source not found.");
+  await requireKnowledgeRackAccess(context, source.rackId, "MANAGE");
+  if (confirmationName !== source.name)
+    return failure(
+      "VALIDATION_ERROR",
+      "The confirmation name does not match the source name.",
+      { fieldErrors: { confirmationName: ["Enter the exact source name."] } },
+    );
+
+  const requestId = crypto.randomUUID();
+  const storageKeys = source.documents.flatMap((document) =>
+    document.versions.map((version) => version.storageKey),
+  );
+  await db.$transaction(async (tx) => {
+    await tx.knowledgeSource.delete({ where: { id: source.id } });
+    await tx.auditLog.create({
+      data: {
+        organizationId: context.organizationId,
+        workspaceId: context.workspaceId,
+        actorId: context.userId,
+        action: "KNOWLEDGE_SOURCE_DELETED",
+        entityType: "KnowledgeSource",
+        entityId: source.id,
+        entityName: source.name,
+        requestId,
+        beforeValue: {
+          type: source.type,
+          documentCount: source._count.documents,
+          storedObjectCount: storageKeys.length,
+        },
+      },
+    });
+  });
+  await deleteStoredKnowledgeObjects(storageKeys, {
+    requestId,
+    entityId: source.id,
+    entityType: "KnowledgeSource",
+  });
+  return success({ deleted: true as const, id: source.id });
+}
+
+export async function deleteKnowledgeFolder(
+  context: AuthorizationContext,
+  folderId: string,
+  confirmationName: string,
+) {
+  const folder = await db.knowledgeRack.findFirst({
+    where: { id: folderId, organizationId: context.organizationId },
+    include: {
+      sources: {
+        select: {
+          documents: {
+            select: { versions: { select: { storageKey: true } } },
+          },
+        },
+      },
+      _count: { select: { sources: true } },
+    },
+  });
+  if (!folder) return failure("NOT_FOUND", "Folder not found.");
+  await requireKnowledgeRackAccess(context, folder.id, "MANAGE");
+  if (confirmationName !== folder.name)
+    return failure(
+      "VALIDATION_ERROR",
+      "The confirmation name does not match the folder name.",
+      { fieldErrors: { confirmationName: ["Enter the exact folder name."] } },
+    );
+
+  const requestId = crypto.randomUUID();
+  const storageKeys = folder.sources.flatMap((source) =>
+    source.documents.flatMap((document) =>
+      document.versions.map((version) => version.storageKey),
+    ),
+  );
+  await db.$transaction(async (tx) => {
+    await tx.knowledgeRack.delete({ where: { id: folder.id } });
+    await tx.auditLog.create({
+      data: {
+        organizationId: context.organizationId,
+        workspaceId: context.workspaceId,
+        actorId: context.userId,
+        action: "KNOWLEDGE_FOLDER_DELETED",
+        entityType: "KnowledgeRack",
+        entityId: folder.id,
+        entityName: folder.name,
+        requestId,
+        beforeValue: {
+          sourceCount: folder._count.sources,
+          storedObjectCount: storageKeys.length,
+        },
+      },
+    });
+  });
+  await deleteStoredKnowledgeObjects(storageKeys, {
+    requestId,
+    entityId: folder.id,
+    entityType: "KnowledgeRack",
+  });
+  return success({ deleted: true as const, id: folder.id });
 }

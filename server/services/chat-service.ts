@@ -13,9 +13,9 @@ import { consumeRateLimit } from "@/server/services/rate-limit";
 import { failure, success } from "@/types/result";
 import {
   executeDatabaseQuery,
-  isLikelyDatabaseQuestion,
   proposeDatabaseQuery,
 } from "@/server/services/database-intelligence-service";
+import { classifyDatabaseChatIntent } from "@/server/services/database-chat-intent";
 import {
   invokeLegacyApi,
   planLegacyApiToolCall,
@@ -297,7 +297,14 @@ type DatabaseChatResult = {
   queryId?: string;
   citation?: Record<string, unknown>;
   failed?: boolean;
+  confirmationQuestion?: string;
 };
+
+function isDatabaseQueryConfirmation(value: string) {
+  return /^(yes|y|sure|ok|okay|please do|go ahead|ได้|ใช่|ตกลง|โอเค|ดึงเลย|ค้นเลย|query เลย)[.!\s]*$/iu.test(
+    value.trim(),
+  );
+}
 
 async function answerFromAssignedDatabase(
   context: AuthorizationContext,
@@ -309,9 +316,22 @@ async function answerFromAssignedDatabase(
     }>;
   },
   question: string,
+  options: { forceQuery?: boolean } = {},
 ): Promise<DatabaseChatResult | null> {
-  if (!bot.dataSources.length || !isLikelyDatabaseQuestion(question))
-    return null;
+  if (!bot.dataSources.length) return null;
+  const intent = classifyDatabaseChatIntent(question, options.forceQuery);
+  if (intent === "NONE") return null;
+  if (intent === "CONFIRM") {
+    const names = bot.dataSources
+      .map(({ dataSource }) => dataSource.name)
+      .join(", ");
+    return {
+      content: isThai(question)
+        ? `คำถามนี้อาจเกี่ยวข้องกับข้อมูลในฐานข้อมูล ${names} ต้องการให้ฉัน query ฐานข้อมูลเพื่อหาคำตอบไหมครับ?`
+        : `This may relate to data in ${names}. Would you like me to query the database for the answer?`,
+      confirmationQuestion: question,
+    };
+  }
   if (bot.dataSources.length > 1) {
     const names = bot.dataSources
       .map(({ dataSource }) => dataSource.name)
@@ -486,11 +506,12 @@ export async function sendKnowledgeChatMessage(
     const globalDatabaseSources = await db.dataSource.findMany({
       where: {
         workspaceId: context.workspaceId,
-        sourceScope: "GLOBAL",
-        sourceStatus: "READY",
+        sourceStatus: { not: "DISABLED" },
         status: "CONNECTED",
         type: { in: ["MYSQL", "POSTGRESQL", "MSSQL", "ORACLE"] },
         bots: { none: { botId: bot.id } },
+        schemas: { some: { tables: { some: { selected: true } } } },
+        ...(input.isUniversal ? {} : { sourceScope: "GLOBAL" as const }),
       },
       select: { id: true, name: true },
       orderBy: { name: "asc" },
@@ -575,9 +596,40 @@ export async function sendKnowledgeChatMessage(
     },
   });
   const startedAt = performance.now();
+  let databaseQuestion = input.message;
+  let databaseQueryConfirmed = false;
+  if (
+    databaseScope &&
+    bot.databaseToolsEnabled &&
+    isDatabaseQueryConfirmation(input.message)
+  ) {
+    const previousAssistant = await db.chatMessage.findFirst({
+      where: { conversationId: conversation.id, role: "ASSISTANT" },
+      orderBy: { createdAt: "desc" },
+      select: { scopeConfig: true },
+    });
+    const previousScope =
+      previousAssistant?.scopeConfig &&
+      typeof previousAssistant.scopeConfig === "object" &&
+      !Array.isArray(previousAssistant.scopeConfig)
+        ? previousAssistant.scopeConfig
+        : null;
+    if (
+      previousScope?.databaseQueryConfirmation === true &&
+      typeof previousScope.databaseQuestion === "string"
+    ) {
+      databaseQuestion = previousScope.databaseQuestion;
+      databaseQueryConfirmed = true;
+    }
+  }
   const databaseAnswer =
     databaseScope && bot.databaseToolsEnabled
-      ? await answerFromAssignedDatabase(context, bot, input.message)
+      ? await answerFromAssignedDatabase(context, bot, databaseQuestion, {
+          forceQuery:
+            databaseQueryConfirmed ||
+            scope === "DATABASES" ||
+            input.mode === "QUERY_LIVE_DATA",
+        })
       : null;
   const legacyApiAnswer = databaseAnswer
     ? null
@@ -673,6 +725,12 @@ export async function sendKnowledgeChatMessage(
         scopeConfig: {
           botId: bot.id,
           sourceIds: input.sourceIds ?? [],
+          ...(databaseAnswer?.confirmationQuestion
+            ? {
+                databaseQueryConfirmation: true,
+                databaseQuestion: databaseAnswer.confirmationQuestion,
+              }
+            : {}),
         },
         citations:
           errorCode || bot.providerConfig?.citationEnabled === false
