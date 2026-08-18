@@ -9,7 +9,6 @@ import {
   legacyApiInvocationInputSchema,
   legacyApiRegistrySchema,
 } from "@/schemas/legacy-api";
-import { sourceAssignmentSchema } from "@/schemas/knowledge";
 import {
   deleteLegacyApi,
   generateLegacyApiToolDefinition,
@@ -19,6 +18,7 @@ import {
 } from "@/server/services/legacy-api-service";
 import { failure } from "@/types/result";
 import { updateSourceAssignment } from "@/server/services/unified-source-service";
+import { parseLegacyApiSourceAssignment } from "./form-utils";
 
 function json(value: FormDataEntryValue | null, fallback: unknown) {
   const text = String(value ?? "").trim();
@@ -72,20 +72,14 @@ export async function saveLegacyApiAction(_state: unknown, formData: FormData) {
   await requirePermission(context, "legacy_api.manage");
   const parsed = parseRegistryFormData(formData);
   if (!parsed.ok) return parsed;
-  const assignment = sourceAssignmentSchema.safeParse({
-    sourceType: "API_TOOL",
-    sourceId: String(formData.get("legacyApiId") ?? "pending"),
-    scope: formData.get("sourceScope"),
-    botIds: formData.getAll("botIds"),
-    enabled: formData.get("enabled"),
-    priority: formData.get("priority"),
-  });
+  const assignment = parseLegacyApiSourceAssignment(formData);
   if (!assignment.success) {
     const fieldErrors = assignment.error.flatten().fieldErrors;
     const message =
       fieldErrors.botIds?.[0] ??
       fieldErrors.scope?.[0] ??
       fieldErrors.priority?.[0] ??
+      fieldErrors.sourceId?.[0] ??
       "Check the API scope and bot assignments.";
     return failure("VALIDATION_ERROR", message, {
       fieldErrors,

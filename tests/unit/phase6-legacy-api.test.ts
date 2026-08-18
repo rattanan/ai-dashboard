@@ -10,6 +10,10 @@ import {
   mapLegacyApiPayload,
   redactLegacyApiSecretValue,
 } from "@/server/services/legacy-api-service";
+import {
+  parseLegacyApiSourceAssignment,
+  pendingLegacyApiSourceId,
+} from "@/features/legacy-api/form-utils";
 
 const definitions = [
   {
@@ -56,6 +60,32 @@ function registry(overrides: Record<string, unknown> = {}) {
 }
 
 describe("Phase 6 Legacy API registry contracts", () => {
+  it("uses a temporary source id while validating a new API tool", () => {
+    expect(pendingLegacyApiSourceId(null)).toBe("pending");
+    expect(pendingLegacyApiSourceId("")).toBe("pending");
+    expect(pendingLegacyApiSourceId("  ")).toBe("pending");
+    expect(pendingLegacyApiSourceId("api-123")).toBe("api-123");
+  });
+
+  it("accepts a selected bot assignment for a new unsaved API tool", () => {
+    const formData = new FormData();
+    formData.set("legacyApiId", "");
+    formData.set("sourceScope", "SELECTED_BOTS");
+    formData.append("botIds", "bot-123");
+    formData.set("enabled", "on");
+    formData.set("priority", "100");
+
+    expect(parseLegacyApiSourceAssignment(formData)).toMatchObject({
+      success: true,
+      data: {
+        sourceType: "API_TOOL",
+        sourceId: "pending",
+        scope: "SELECTED_BOTS",
+        botIds: ["bot-123"],
+      },
+    });
+  });
+
   it.each([
     ["NONE", {}],
     ["API_KEY", { apiKeyHeaderName: "X-API-Key", apiKey: "key-value" }],
