@@ -350,6 +350,32 @@ describe("Phase 6 safe HTTP boundary", () => {
     ).rejects.toMatchObject({ code: "REDIRECT_DENIED" });
   });
 
+  it("explains an upstream 401 as a credential problem", async () => {
+    await expect(
+      fetchPublicJsonApi(
+        {
+          url: "https://api.example.com/data",
+          allowedDomains: ["api.example.com"],
+          method: "GET",
+          headers: {},
+          timeoutMs: 1_000,
+          maxBytes: 1_024,
+          maxRedirects: 0,
+        },
+        {
+          validateUrl,
+          requestOnce: vi.fn(async () => ({
+            status: 401,
+            headers: { "content-type": "application/json" },
+            bytes: Buffer.from('{"message":"Invalid API key"}'),
+          })),
+        },
+      ),
+    ).rejects.toThrowError(
+      "The API rejected the credential (HTTP 401). Check that the API key is correct and active, then try again.",
+    );
+  });
+
   it("rejects oversized, non-JSON, and malformed JSON responses", async () => {
     const base = {
       url: "https://api.example.com/data",
