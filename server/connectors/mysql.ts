@@ -91,6 +91,13 @@ function isTransientConnectionError(error: unknown) {
   ]).has(code);
 }
 
+function isLegacyReadOnlyTransactionSyntaxError(error: unknown) {
+  const diagnostics = getSafeDiagnostics(error);
+  return (
+    diagnostics.driverCode === "ER_PARSE_ERROR" && diagnostics.errno === 1064
+  );
+}
+
 function wait(delayMs: number) {
   return new Promise((resolve) => setTimeout(resolve, delayMs));
 }
@@ -296,7 +303,19 @@ export class MySqlConnector implements DataConnector {
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
         const connection = await this.getConnection();
-        await connection.query("START TRANSACTION READ ONLY");
+        try {
+          await connection.query("START TRANSACTION READ ONLY");
+        } catch (error) {
+          if (!isLegacyReadOnlyTransactionSyntaxError(error)) throw error;
+          logger.warn(
+            "Falling back to a guarded transaction for legacy MySQL compatibility",
+            {
+              operation: "executeReadOnlyQuery",
+              diagnostics: getSafeDiagnostics(error),
+            },
+          );
+          await connection.query("START TRANSACTION");
+        }
         const [rows] = await connection.query<RowDataPacket[]>({
           sql: guarded.data.sql,
           timeout: options?.timeoutMs ?? 10_000,
