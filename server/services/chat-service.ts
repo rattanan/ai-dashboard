@@ -17,6 +17,7 @@ import {
 } from "@/server/services/database-intelligence-service";
 import { classifyDatabaseChatIntent } from "@/server/services/database-chat-intent";
 import {
+  hasExplicitApiToolIntent,
   invokeLegacyApi,
   planLegacyApiToolCall,
 } from "@/server/services/legacy-api-service";
@@ -393,8 +394,14 @@ async function answerFromAssignedLegacyApi(
   context: AuthorizationContext,
   botId: string,
   question: string,
+  options: { forceApi?: boolean } = {},
 ): Promise<LegacyApiChatResult | null> {
-  const planned = await planLegacyApiToolCall(context, botId, question);
+  const planned = await planLegacyApiToolCall(
+    context,
+    botId,
+    question,
+    options,
+  );
   if (!planned.ok)
     return {
       content: isThai(question)
@@ -635,7 +642,12 @@ export async function sendKnowledgeChatMessage(
     ? null
     : ["SMART", "ALL_ACCESSIBLE", "API_TOOLS"].includes(scope) &&
         bot.apiToolsEnabled
-      ? await answerFromAssignedLegacyApi(context, bot.id, input.message)
+      ? await answerFromAssignedLegacyApi(context, bot.id, input.message, {
+          forceApi:
+            scope === "API_TOOLS" ||
+            input.mode === "QUERY_LIVE_DATA" ||
+            hasExplicitApiToolIntent(input.message),
+        })
       : null;
   const isolatedScope = ["CONVERSATION_HISTORY", "BUSINESS_INSIGHT"].includes(
     scope,

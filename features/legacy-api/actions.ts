@@ -86,6 +86,13 @@ export async function saveLegacyApiAction(_state: unknown, formData: FormData) {
     });
   }
   await requirePermission(context, "bot.manage");
+  const testParameters = json(formData.get("testParametersJson"), {});
+  if (
+    !testParameters.ok ||
+    !testParameters.value ||
+    Array.isArray(testParameters.value)
+  )
+    return failure("VALIDATION_ERROR", "Provide valid test input values.");
   const result = await saveLegacyApi(context, parsed.data);
   if (result.ok) {
     const assigned = await updateSourceAssignment(context, {
@@ -93,6 +100,12 @@ export async function saveLegacyApiAction(_state: unknown, formData: FormData) {
       sourceId: result.data.id,
     });
     if (!assigned.ok) return assigned;
+    const verified = await testLegacyApi(
+      context,
+      result.data.id,
+      testParameters.value as Record<string, string | number | boolean>,
+    );
+    if (!verified.ok) return verified;
     revalidatePath("/workspace/sources/api-tools");
     revalidatePath("/workspace/admin/bots");
     revalidatePath("/workspace/sources");

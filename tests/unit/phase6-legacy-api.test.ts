@@ -7,6 +7,8 @@ import {
 import { legacyApiRegistrySchema } from "@/schemas/legacy-api";
 import {
   buildLegacyApiRequest,
+  fallbackLegacyApiToolPlan,
+  hasExplicitApiToolIntent,
   mapLegacyApiPayload,
   redactLegacyApiSecretValue,
 } from "@/server/services/legacy-api-service";
@@ -60,6 +62,70 @@ function registry(overrides: Record<string, unknown> = {}) {
 }
 
 describe("Phase 6 Legacy API registry contracts", () => {
+  it("detects an explicit request to use an API tool", () => {
+    expect(hasExplicitApiToolIntent("ดึงจาก API tool สิ")).toBe(true);
+    expect(hasExplicitApiToolIntent("Summarize the policy")).toBe(false);
+  });
+
+  it("routes a weather question to the ready weather tool without inventing inputs", () => {
+    const plan = fallbackLegacyApiToolPlan(
+      [
+        {
+          id: "weather-api",
+          name: "Weather API",
+          description: "Read current weather data from OpenWeatherMap.",
+          baseUrl: "https://api.openweathermap.org",
+          parameterDefinitions: [
+            {
+              name: "lat",
+              label: "Latitude",
+              description: "Latitude for the weather lookup",
+              location: "QUERY",
+              type: "NUMBER",
+              required: true,
+            },
+            {
+              name: "lon",
+              label: "Longitude",
+              description: "Longitude for the weather lookup",
+              location: "QUERY",
+              type: "NUMBER",
+              required: true,
+            },
+          ],
+        },
+      ],
+      "วันนี้อากาศเป็นไง",
+    );
+
+    expect(plan).toMatchObject({
+      intent: "CLARIFICATION",
+      apiId: "weather-api",
+      parameters: {},
+      reason: "MISSING_REQUIRED_API_PARAMETERS",
+    });
+    expect("clarification" in plan ? plan.clarification : "").toContain(
+      "Latitude",
+    );
+  });
+
+  it("does not route an unrelated knowledge question to an API tool", () => {
+    expect(
+      fallbackLegacyApiToolPlan(
+        [
+          {
+            id: "weather-api",
+            name: "Weather API",
+            description: "Read current weather data.",
+            baseUrl: "https://api.example.com",
+            parameterDefinitions: [],
+          },
+        ],
+        "สรุปนโยบายวันลา",
+      ),
+    ).toEqual({ intent: "OTHER" });
+  });
+
   it("uses a temporary source id while validating a new API tool", () => {
     expect(pendingLegacyApiSourceId(null)).toBe("pending");
     expect(pendingLegacyApiSourceId("")).toBe("pending");

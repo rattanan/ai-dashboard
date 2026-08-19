@@ -67,7 +67,6 @@ type LegacyApiValue = {
 
 const steps = ["API URL", "Input fields", "Test & output", "Save tool"];
 const secretQueryName = /^(appid|api[_-]?key|apikey|key|token|access_token)$/i;
-const requiredQueryName = /^(q|query|city|lat|lon|zip|id)$/i;
 
 function parsedParameters(value?: string): ApiParameter[] {
   try {
@@ -253,7 +252,7 @@ export function LegacyApiRegistryForm({
           continue;
         }
         const placeholder = /^\{[^}]+\}$/.test(rawValue);
-        const required = placeholder || requiredQueryName.test(parameterName);
+        const required = placeholder;
         const parameter: ApiParameter = {
           name: parameterName,
           label: friendlyLabel(parameterName),
