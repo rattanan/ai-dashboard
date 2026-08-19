@@ -12,7 +12,6 @@ import {
 } from "@/server/connectors/sql-grounding";
 import { db } from "@/server/db";
 import {
-  databaseAnswerSummarySchema,
   databaseQueryPlanSchema,
   metadataDescriptionOutputSchema,
 } from "@/schemas/database-intelligence";
@@ -25,6 +24,7 @@ import { sanitizeSampleRow } from "./sensitive-data";
 import { hasPermission } from "@/server/auth/permissions";
 import type { DataConnector } from "@/server/connectors/types";
 import { planDeterministicDatabaseTextSearch } from "./database-deterministic-plan";
+import { formatDatabaseAnswer } from "./database-answer-formatter";
 
 type DatabaseSourceType = "MYSQL" | "POSTGRESQL" | "MSSQL" | "ORACLE";
 const SEMANTIC_METADATA_GENERATION_TIMEOUT_MS = 45_000;
@@ -550,26 +550,11 @@ export async function executeDatabaseQuery(
           },
         ),
       );
-    let summary = `Query returned ${result.data.length} row(s).\n${JSON.stringify(previewRows, null, 2)}`;
-    let limitations: string[] = [];
-    const summarized = await generateCachedStructuredOutput(context, {
-      requestId: crypto.randomUUID(),
-      schemaName: "database_answer_summary",
-      outputSchema: databaseAnswerSummarySchema,
-      promptVersion: "database-answer-summary-v1",
-      systemPrompt:
-        "Summarize only the bounded query result supplied. Do not infer missing values, causes, trends, or facts. Mention empty/limited samples clearly. Preserve the user's language. Never reveal SQL or credentials.",
-      userPrompt: JSON.stringify({
-        question: query.question,
-        rowCount: result.data.length,
-        previewRows,
-        referencedTables: validation.data.tables,
-      }),
-    });
-    if (summarized.ok) {
-      summary = summarized.data.data.summary;
-      limitations = summarized.data.data.limitations;
-    }
+    const { summary, limitations } = formatDatabaseAnswer(
+      query.question,
+      previewRows,
+      result.data.length,
+    );
     const citation = {
       sourceType: "DATABASE",
       dataSourceId: query.dataSourceId,
