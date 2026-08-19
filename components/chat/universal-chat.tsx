@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   Bot,
   ChevronRight,
@@ -14,11 +15,9 @@ import {
   Search,
   Send,
   Sparkles,
-  ThumbsDown,
-  ThumbsUp,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { submitMessageFeedbackAction } from "@/features/chat/actions";
+import { MessageFeedbackButtons } from "@/components/chat/message-feedback-buttons";
 import { readJsonResponse } from "@/lib/http-response";
 
 type Message = {
@@ -33,6 +32,7 @@ type Message = {
     metadata: unknown;
   }>;
   toolActivity?: { type: string; status: string };
+  rating?: number | null;
 };
 
 type Scope =
@@ -74,6 +74,7 @@ export function UniversalChat({
   initialMessages: Message[];
   historyQuery: string;
 }) {
+  const router = useRouter();
   const [scope, setScope] = useState<Scope>("SMART");
   const [mode, setMode] = useState<Mode>("AUTO");
   const [botId, setBotId] = useState("");
@@ -86,6 +87,18 @@ export function UniversalChat({
   const showBot = scope === "SPECIFIC_BOT";
   const showSources = scope === "SPECIFIC_SOURCES";
   const selectedSources = useMemo(() => new Set(sourceIds), [sourceIds]);
+
+  function startNewChat() {
+    setScope("SMART");
+    setMode("AUTO");
+    setBotId("");
+    setSourceIds([]);
+    setConversationId(undefined);
+    setMessages([]);
+    setMessage("");
+    setPending(false);
+    setError("");
+  }
 
   async function send() {
     const content = message.trim();
@@ -144,6 +157,10 @@ export function UniversalChat({
         { ...userMessage, role: "USER", citations: [] },
         assistantMessage,
       ]);
+      router.replace(
+        `/workspace/chat?conversation=${encodeURIComponent(conversation.id)}`,
+        { scroll: false },
+      );
     } catch (reason) {
       setError(
         reason instanceof Error
@@ -161,6 +178,7 @@ export function UniversalChat({
       <aside className="rounded-xl border bg-card p-4">
         <Link
           href="/workspace/chat"
+          onClick={startNewChat}
           className="flex min-h-11 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground"
         >
           <MessageSquarePlus size={17} /> New chat
@@ -382,29 +400,11 @@ export function UniversalChat({
                 </p>
               ) : null}
               {item.role === "ASSISTANT" && !item.id.startsWith("pending-") ? (
-                <div className="mt-2 flex gap-1">
-                  <form action={submitMessageFeedbackAction}>
-                    <input type="hidden" name="messageId" value={item.id} />
-                    <input type="hidden" name="rating" value="1" />
-                    <input type="hidden" name="reason" value="CORRECT" />
-                    <button
-                      aria-label="Helpful answer"
-                      className="grid size-11 place-items-center rounded-lg hover:bg-emerald-50"
-                    >
-                      <ThumbsUp size={15} />
-                    </button>
-                  </form>
-                  <form action={submitMessageFeedbackAction}>
-                    <input type="hidden" name="messageId" value={item.id} />
-                    <input type="hidden" name="rating" value="-1" />
-                    <input type="hidden" name="reason" value="INCORRECT" />
-                    <button
-                      aria-label="Unhelpful answer"
-                      className="grid size-11 place-items-center rounded-lg hover:bg-red-50"
-                    >
-                      <ThumbsDown size={15} />
-                    </button>
-                  </form>
+                <div className="mt-2">
+                  <MessageFeedbackButtons
+                    messageId={item.id}
+                    initialRating={item.rating}
+                  />
                 </div>
               ) : null}
             </article>

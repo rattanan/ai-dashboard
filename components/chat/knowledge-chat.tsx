@@ -11,11 +11,10 @@ import {
   FileText,
   Plus,
   Search,
-  ThumbsDown,
-  ThumbsUp,
   Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { MessageFeedbackButtons } from "@/components/chat/message-feedback-buttons";
 import {
   deleteConversationAction,
   renameConversationAction,
@@ -459,34 +458,18 @@ export function KnowledgeChat({
               </article>
               {message.role === "ASSISTANT" ? (
                 <div className="mt-2 flex flex-wrap items-start gap-1">
-                  <form action={submitMessageFeedbackAction}>
-                    <input type="hidden" name="messageId" value={message.id} />
-                    <input type="hidden" name="rating" value="1" />
-                    <input type="hidden" name="reason" value="CORRECT" />
-                    <button
-                      aria-label="Helpful answer"
-                      className="grid size-11 place-items-center rounded-lg hover:bg-emerald-50"
-                    >
-                      <ThumbsUp size={15} />
-                    </button>
-                  </form>
-                  <form action={submitMessageFeedbackAction}>
-                    <input type="hidden" name="messageId" value={message.id} />
-                    <input type="hidden" name="rating" value="-1" />
-                    <input type="hidden" name="reason" value="INCORRECT" />
-                    <button
-                      aria-label="Unhelpful answer"
-                      className="grid size-11 place-items-center rounded-lg hover:bg-red-50"
-                    >
-                      <ThumbsDown size={15} />
-                    </button>
-                  </form>
+                  <MessageFeedbackButtons
+                    messageId={message.id}
+                    initialRating={message.rating}
+                  />
                   <details className="rounded-lg border bg-white px-3 py-2 text-xs">
                     <summary className="min-h-7 cursor-pointer py-1 font-medium text-muted-foreground">
                       Feedback details
                     </summary>
                     <form
-                      action={submitMessageFeedbackAction}
+                      action={async (formData) => {
+                        await submitMessageFeedbackAction(formData);
+                      }}
                       className="mt-3 grid gap-3 sm:grid-cols-2"
                     >
                       <input

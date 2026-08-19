@@ -290,14 +290,20 @@ export async function updateSourceAssignment(
         where: { id: input.sourceId, workspaceId: context.workspaceId },
       });
       if (!source) return failure("NOT_FOUND", "Database source not found.");
+      const selectedTableCount = await tx.dataSourceTable.count({
+        where: {
+          selected: true,
+          schema: { dataSourceId: source.id, selected: true },
+        },
+      });
       await tx.dataSource.update({
         where: { id: source.id },
         data: {
           sourceScope: input.scope,
           sourceStatus: input.enabled
-            ? source.sourceStatus === "DISABLED"
-              ? "DRAFT"
-              : source.sourceStatus
+            ? selectedTableCount > 0 && source.status === "CONNECTED"
+              ? "READY"
+              : "DRAFT"
             : "DISABLED",
         },
       });

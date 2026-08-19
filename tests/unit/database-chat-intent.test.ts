@@ -9,6 +9,14 @@ describe("classifyDatabaseChatIntent", () => {
     expect(classifyDatabaseChatIntent("How many orders are there?")).toBe(
       "QUERY",
     );
+    expect(
+      classifyDatabaseChatIntent(
+        "ช่วยหา asset ที่มี description เกี่ยวกับ filter",
+      ),
+    ).toBe("QUERY");
+    expect(classifyDatabaseChatIntent("Find assets containing filter")).toBe(
+      "QUERY",
+    );
   });
 
   it("asks before querying when database intent is ambiguous", () => {

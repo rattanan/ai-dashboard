@@ -58,6 +58,7 @@ export default async function ChatIndexPage({
             include: {
               citations: { orderBy: { rank: "asc" } },
               toolTraces: { orderBy: { createdAt: "desc" }, take: 1 },
+              feedback: { select: { rating: true } },
             },
             orderBy: { createdAt: "asc" },
           },
@@ -96,6 +97,7 @@ export default async function ChatIndexPage({
     }));
   return (
     <UniversalChat
+      key={selected?.id ?? "new"}
       bots={bots}
       sources={sources.map((source) => ({
         ...source,
@@ -125,6 +127,7 @@ export default async function ChatIndexPage({
               status: message.toolTraces[0].status,
             }
           : undefined,
+        rating: message.feedback?.rating,
       }))}
       historyQuery={historyQuery}
     />

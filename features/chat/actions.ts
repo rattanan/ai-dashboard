@@ -46,7 +46,8 @@ export async function deleteConversationAction(formData: FormData) {
 export async function submitMessageFeedbackAction(formData: FormData) {
   const context = await requireAuthorization();
   const parsed = messageFeedbackSchema.safeParse(Object.fromEntries(formData));
-  if (!parsed.success) return;
+  if (!parsed.success)
+    return { ok: false as const, error: "Invalid feedback." };
   const message = await db.chatMessage.findFirst({
     where: {
       id: parsed.data.messageId,
@@ -57,7 +58,8 @@ export async function submitMessageFeedbackAction(formData: FormData) {
       },
     },
   });
-  if (!message) return;
+  if (!message)
+    return { ok: false as const, error: "The answer could not be found." };
   await db.chatMessageFeedback.upsert({
     where: { messageId: message.id },
     update: {
@@ -75,4 +77,6 @@ export async function submitMessageFeedbackAction(formData: FormData) {
     },
   });
   revalidatePath("/workspace/chat");
+  revalidatePath("/workspace/chat/saved");
+  return { ok: true as const, rating: parsed.data.rating };
 }
