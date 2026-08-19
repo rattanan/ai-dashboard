@@ -23,7 +23,7 @@ import { getEffectiveAiPrivacyPolicy } from "./privacy-policy";
 import { sanitizeSampleRow } from "./sensitive-data";
 import { hasPermission } from "@/server/auth/permissions";
 import type { DataConnector } from "@/server/connectors/types";
-import { planDeterministicDatabaseTextSearch } from "./database-deterministic-plan";
+import { planDeterministicDatabaseQuery } from "./database-deterministic-plan";
 import { formatDatabaseAnswer } from "./database-answer-formatter";
 
 type DatabaseSourceType = "MYSQL" | "POSTGRESQL" | "MSSQL" | "ORACLE";
@@ -301,20 +301,17 @@ export async function proposeDatabaseQuery(
     if (!assignment)
       return failure("NOT_FOUND", "Bot database assignment not found.");
   }
-  const deterministicPlan = planDeterministicDatabaseTextSearch(
-    input.question,
-    {
-      dataSourceType: metadata.data.source.type,
-      tables: metadata.data.selectedMetadata.tables.map((table) => ({
-        schema: table.schema,
-        name: table.name,
-        columns: table.columns.map((column) => ({ name: column.name })),
-      })),
-    },
-  );
+  const deterministicPlan = planDeterministicDatabaseQuery(input.question, {
+    dataSourceType: metadata.data.source.type,
+    tables: metadata.data.selectedMetadata.tables.map((table) => ({
+      schema: table.schema,
+      name: table.name,
+      columns: table.columns.map((column) => ({ name: column.name })),
+    })),
+  });
   let plan = deterministicPlan;
   let provider = "deterministic";
-  let model = "schema-text-search-v1";
+  let model = "schema-query-v1";
   if (!plan) {
     const generated = await generateCachedStructuredOutput(context, {
       requestId: crypto.randomUUID(),
