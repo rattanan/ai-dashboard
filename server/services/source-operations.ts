@@ -10,6 +10,10 @@ import {
   validateSharedFolderConfigurationPath,
 } from "@/packages/knowledge/source-security";
 import {
+  canonicalGoogleDriveFolderUrl,
+  isGoogleDriveFolderUrl,
+} from "@/packages/knowledge/google-drive-url";
+import {
   configureSourceRefreshSchedule,
   enqueueDocumentIndexJob,
   enqueueSourceRefreshJob,
@@ -37,10 +41,19 @@ export async function createSharedFolderSource(
   const configuration = env();
   let canonicalPath: string;
   try {
-    canonicalPath = validateSharedFolderConfigurationPath(
-      input.rootPath,
-      configuredSharedRoots(configuration.KNOWLEDGE_SHARED_FOLDER_ROOTS),
-    );
+    if (isGoogleDriveFolderUrl(input.rootPath)) {
+      if (!configuration.GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON)
+        return failure(
+          "VALIDATION_ERROR",
+          "Google Drive is not configured on this server. Set GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON first.",
+        );
+      canonicalPath = canonicalGoogleDriveFolderUrl(input.rootPath);
+    } else {
+      canonicalPath = validateSharedFolderConfigurationPath(
+        input.rootPath,
+        configuredSharedRoots(configuration.KNOWLEDGE_SHARED_FOLDER_ROOTS),
+      );
+    }
   } catch (error) {
     return failure(
       "VALIDATION_ERROR",

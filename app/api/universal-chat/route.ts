@@ -1,6 +1,9 @@
 import { universalChatRequestSchema } from "@/schemas/knowledge";
 import { getAuthorizationContext } from "@/server/auth/authorization";
+import { chatStreamResponse } from "@/server/http/chat-stream-response";
 import { sendUniversalChatMessage } from "@/server/services/chat-service";
+
+export const maxDuration = 60;
 
 export async function POST(request: Request) {
   const context = await getAuthorizationContext();
@@ -18,22 +21,9 @@ export async function POST(request: Request) {
       { status: 422 },
     );
   try {
-    const result = await sendUniversalChatMessage(context, parsed.data);
-    if (!result.ok)
-      return Response.json(
-        { error: result.error.code, message: result.error.message },
-        {
-          status:
-            result.error.code === "NOT_FOUND"
-              ? 404
-              : result.error.code === "AI_RATE_LIMITED"
-                ? 429
-                : 400,
-        },
-      );
-    return Response.json(result.data, {
-      headers: { "cache-control": "no-store" },
-    });
+    return chatStreamResponse((onToken) =>
+      sendUniversalChatMessage(context, { ...parsed.data, onToken }),
+    );
   } catch {
     return Response.json(
       {

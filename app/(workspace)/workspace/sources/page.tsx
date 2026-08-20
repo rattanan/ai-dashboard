@@ -16,6 +16,8 @@ import { KnowledgeSourceActions } from "@/components/sources/knowledge-source-ac
 import { requireAuthorization } from "@/server/auth/authorization";
 import { hasPermission } from "@/server/auth/permissions";
 import { db } from "@/server/db";
+import { env } from "@/schemas/env";
+import { configuredGoogleDriveServiceAccountEmail } from "@/packages/knowledge/google-drive-url";
 
 export const metadata = { title: "Manage Source" };
 
@@ -262,6 +264,9 @@ export default async function SourcesPage({
               key={sources.length}
               folders={folders}
               bots={bots}
+              googleDriveServiceAccountEmail={configuredGoogleDriveServiceAccountEmail(
+                env().GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON,
+              )}
             />
           ) : undefined
         }

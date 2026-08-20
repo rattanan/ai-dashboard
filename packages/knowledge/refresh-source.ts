@@ -9,6 +9,12 @@ import {
   scanSharedFolder,
   SourceSecurityError,
 } from "./source-security.js";
+import {
+  downloadGoogleDriveFile,
+  googleDriveAccessToken,
+  scanGoogleDriveFolder,
+} from "./google-drive.js";
+import { isGoogleDriveFolderUrl } from "./google-drive-url.js";
 
 type SourceRow = {
   sourceId: string;
@@ -428,6 +434,151 @@ async function refreshFolder(
   };
 }
 
+async function refreshGoogleDriveFolder(
+  pool: Pool,
+  source: SourceRow,
+  runId: string,
+  environment: WorkerEnvironment,
+  enqueueIndex: (indexJobId: string) => Promise<void>,
+) {
+  if (!source.rootPath)
+    throw new Error("Google Drive folder configuration is missing.");
+  if (!environment.GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON)
+    throw new Error(
+      "Google Drive is not configured. Set GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON and restart the worker.",
+    );
+  const accessToken = await googleDriveAccessToken(
+    environment.GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON,
+  );
+  const previous = await snapshots(pool, source.sourceId);
+  const scan = await scanGoogleDriveFolder({
+    folderUrl: source.rootPath,
+    accessToken,
+    includeSubdirectories: source.includeSubdirectories ?? true,
+    maxFiles: Math.min(
+      source.maxFiles ?? environment.KNOWLEDGE_SHARED_FOLDER_MAX_FILES,
+      environment.KNOWLEDGE_SHARED_FOLDER_MAX_FILES,
+    ),
+    maxFileBytes: environment.KNOWLEDGE_MAX_UPLOAD_BYTES,
+  });
+  const seen = new Set<string>();
+  const indexJobs: string[] = [];
+  const errors: Array<{ locator: string; message: string }> = [];
+  let newCount = 0;
+  let changedCount = 0;
+  let unchangedCount = 0;
+  let successCount = 0;
+  for (const file of scan.files) {
+    seen.add(file.locator);
+    const prior = previous.get(file.locator);
+    const changed = !prior || prior.checksum !== file.checksum;
+    if (!changed) unchangedCount += 1;
+    else if (prior) changedCount += 1;
+    else newCount += 1;
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      let documentId = prior?.documentId;
+      if (changed) {
+        const downloaded = await downloadGoogleDriveFile({
+          file,
+          accessToken,
+          maxFileBytes: environment.KNOWLEDGE_MAX_UPLOAD_BYTES,
+        });
+        const created = await createVersion(client, {
+          source,
+          runId,
+          locator: file.locator,
+          name: file.relativePath,
+          mimeType: file.mimeType,
+          checksum: downloaded.checksum,
+          bytes: downloaded.bytes,
+          sourceMetadata: {
+            sourceType: "GOOGLE_DRIVE",
+            googleDriveFileId: file.fileId,
+            googleDriveUrl: file.webViewLink,
+            relativePath: file.relativePath,
+            originalMimeType: file.originalMimeType,
+            modifiedAt: file.modifiedAt?.toISOString() ?? null,
+          },
+          storageRoot: environment.LOCAL_STORAGE_PATH,
+        });
+        documentId = created.documentId;
+        if (created.indexJobId) indexJobs.push(created.indexJobId);
+      }
+      await upsertSnapshot(client, {
+        sourceId: source.sourceId,
+        runId,
+        locator: file.locator,
+        documentId,
+        size: file.size,
+        modifiedAt: file.modifiedAt,
+        checksum: file.checksum,
+        canonicalUrl: file.webViewLink,
+        metadata: {
+          googleDriveFileId: file.fileId,
+          relativePath: file.relativePath,
+          originalMimeType: file.originalMimeType,
+        },
+      });
+      await client.query("COMMIT");
+      successCount += 1;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      errors.push({
+        locator: file.relativePath,
+        message: (error instanceof Error
+          ? error.message
+          : "Google Drive file refresh failed"
+        ).slice(0, 500),
+      });
+    } finally {
+      client.release();
+    }
+  }
+  const deleted = [...previous.values()].filter(
+    (snapshot) => !seen.has(snapshot.locator) && snapshot.documentId,
+  );
+  if (deleted.length) {
+    await pool.query(
+      `UPDATE "Document" SET active = false, "sourceDeletedAt" = CURRENT_TIMESTAMP,
+              "updatedAt" = CURRENT_TIMESTAMP
+        WHERE id = ANY($1::text[])`,
+      [deleted.map((item) => item.documentId)],
+    );
+    await pool.query(
+      `UPDATE "SourceSnapshot" SET status = 'DELETED', "updatedAt" = CURRENT_TIMESTAMP
+        WHERE id = ANY($1::text[])`,
+      [deleted.map((item) => item.id)],
+    );
+  }
+  for (const indexJobId of indexJobs) {
+    try {
+      await enqueueIndex(indexJobId);
+    } catch (error) {
+      const message = (
+        error instanceof Error ? error.message : "Index queue failed"
+      ).slice(0, 500);
+      errors.push({ locator: indexJobId, message });
+      await pool.query(
+        `UPDATE "DocumentIndexJob" SET status = 'DEAD_LETTER',
+                "failureCategory" = 'QUEUE', "errorMessage" = $2,
+                "deadLetteredAt" = CURRENT_TIMESTAMP, "completedAt" = CURRENT_TIMESTAMP,
+                "updatedAt" = CURRENT_TIMESTAMP WHERE id = $1`,
+        [indexJobId, message],
+      );
+    }
+  }
+  return {
+    newCount,
+    changedCount,
+    deletedCount: deleted.length,
+    unchangedCount,
+    successCount,
+    errors,
+  };
+}
+
 async function refreshWeb(
   pool: Pool,
   source: SourceRow,
@@ -707,7 +858,15 @@ export async function processSourceRefreshJob(
   try {
     const result =
       source.sourceType === "SHARED_FOLDER"
-        ? await refreshFolder(pool, source, runId, environment, enqueueIndex)
+        ? isGoogleDriveFolderUrl(source.rootPath ?? "")
+          ? await refreshGoogleDriveFolder(
+              pool,
+              source,
+              runId,
+              environment,
+              enqueueIndex,
+            )
+          : await refreshFolder(pool, source, runId, environment, enqueueIndex)
         : source.sourceType === "WEB"
           ? await refreshWeb(pool, source, runId, environment, enqueueIndex)
           : (() => {

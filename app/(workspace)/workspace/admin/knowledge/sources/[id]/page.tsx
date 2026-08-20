@@ -7,20 +7,18 @@ import {
   FileText,
   History,
   RefreshCw,
-  SearchCheck,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { DeleteKnowledgeDialog } from "@/components/knowledge/delete-knowledge-dialog";
 import { SourceFileUploadForm } from "@/components/sources/source-file-upload-form";
-import {
-  refreshSourceAction,
-  reindexSourceAction,
-} from "@/features/knowledge/source-actions";
+import { SourceReindexForm } from "@/components/sources/source-reindex-form";
+import { refreshSourceAction } from "@/features/knowledge/source-actions";
 import { requireAuthorization } from "@/server/auth/authorization";
 import { requirePermission } from "@/server/auth/permissions";
 import { db } from "@/server/db";
+import { isGoogleDriveFolderUrl } from "@/packages/knowledge/google-drive-url";
 
 export const metadata = { title: "Knowledge source details" };
 
@@ -87,6 +85,29 @@ export default async function KnowledgeSourceDetailPage({
               errorMessage: true,
               updatedAt: true,
               _count: { select: { chunks: true } },
+              indexJobs: {
+                orderBy: { createdAt: "desc" },
+                take: 1,
+                select: { status: true },
+              },
+            },
+          },
+          versions: {
+            orderBy: { version: "desc" },
+            take: 1,
+            select: {
+              id: true,
+              version: true,
+              size: true,
+              status: true,
+              errorMessage: true,
+              updatedAt: true,
+              _count: { select: { chunks: true } },
+              indexJobs: {
+                orderBy: { createdAt: "desc" },
+                take: 1,
+                select: { status: true },
+              },
             },
           },
         },
@@ -109,6 +130,18 @@ export default async function KnowledgeSourceDetailPage({
   const activeDocuments = source.documents.filter(
     (document) => document.active,
   );
+  const visibleVersions = activeDocuments
+    .map((document) => document.currentVersion ?? document.versions[0])
+    .filter((version) => Boolean(version));
+  const latestJobStatuses = visibleVersions
+    .map((version) => version?.indexJobs[0]?.status)
+    .filter((status) => Boolean(status));
+  const activeJobCount = latestJobStatuses.filter((status) =>
+    ["QUEUED", "PROCESSING", "CANCEL_REQUESTED"].includes(status ?? ""),
+  ).length;
+  const reindexableJobCount = latestJobStatuses.filter((status) =>
+    ["COMPLETED", "FAILED", "DEAD_LETTER", "CANCELLED"].includes(status ?? ""),
+  ).length;
   const canRefresh = source.type === "WEB" || source.type === "SHARED_FOLDER";
   const typeLabel = source.type.replaceAll("_", " ");
   const botNames = source.botAssignments.map((item) => item.bot.name);
@@ -227,7 +260,13 @@ export default async function KnowledgeSourceDetailPage({
                 {source.sharedFolderConfig ? (
                   <>
                     <Detail
-                      label="Folder path"
+                      label={
+                        isGoogleDriveFolderUrl(
+                          source.sharedFolderConfig.rootPath,
+                        )
+                          ? "Google Drive folder"
+                          : "Folder path"
+                      }
                       value={source.sharedFolderConfig.rootPath}
                       breakAll
                     />
@@ -284,58 +323,54 @@ export default async function KnowledgeSourceDetailPage({
                       </tr>
                     </thead>
                     <tbody className="divide-y">
-                      {activeDocuments.map((document) => (
-                        <tr key={document.id}>
-                          <td className="p-3">
-                            <p
-                              className="max-w-xs truncate font-medium"
-                              title={document.name}
-                            >
-                              {document.name}
-                            </p>
-                            {document.sourceLocator ? (
+                      {activeDocuments.map((document) => {
+                        const version =
+                          document.currentVersion ?? document.versions[0];
+                        return (
+                          <tr key={document.id}>
+                            <td className="p-3">
                               <p
-                                className="mt-0.5 max-w-xs truncate text-xs text-muted-foreground"
-                                title={document.sourceLocator}
+                                className="max-w-xs truncate font-medium"
+                                title={document.name}
                               >
-                                {document.sourceLocator}
+                                {document.name}
                               </p>
-                            ) : null}
-                          </td>
-                          <td className="p-3">
-                            <Badge
-                              tone={statusTone(document.currentVersion?.status)}
-                            >
-                              {document.currentVersion?.status ?? "NO VERSION"}
-                            </Badge>
-                          </td>
-                          <td className="p-3">
-                            {document.currentVersion?.version ?? "—"}
-                          </td>
-                          <td className="p-3">
-                            {document.currentVersion?._count.chunks.toLocaleString() ??
-                              "0"}
-                          </td>
-                          <td className="p-3">
-                            {fileSize(document.currentVersion?.size)}
-                          </td>
-                          <td className="p-3">
-                            {dateTime(
-                              document.currentVersion?.updatedAt ??
-                                document.updatedAt,
-                            )}
-                          </td>
-                          <td className="p-3 text-right">
-                            <Link
-                              href={`/api/documents/${document.id}/download`}
-                              aria-label={`Open ${document.name}`}
-                              className="inline-grid size-11 place-items-center rounded-lg border hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-                            >
-                              <ExternalLink size={16} aria-hidden="true" />
-                            </Link>
-                          </td>
-                        </tr>
-                      ))}
+                              {document.sourceLocator ? (
+                                <p
+                                  className="mt-0.5 max-w-xs truncate text-xs text-muted-foreground"
+                                  title={document.sourceLocator}
+                                >
+                                  {document.sourceLocator}
+                                </p>
+                              ) : null}
+                            </td>
+                            <td className="p-3">
+                              <Badge tone={statusTone(version?.status)}>
+                                {version?.status ?? "NO VERSION"}
+                              </Badge>
+                            </td>
+                            <td className="p-3">{version?.version ?? "—"}</td>
+                            <td className="p-3">
+                              {version?._count.chunks.toLocaleString() ?? "0"}
+                            </td>
+                            <td className="p-3">{fileSize(version?.size)}</td>
+                            <td className="p-3">
+                              {dateTime(
+                                version?.updatedAt ?? document.updatedAt,
+                              )}
+                            </td>
+                            <td className="p-3 text-right">
+                              <Link
+                                href={`/api/documents/${document.id}/download`}
+                                aria-label={`Open ${document.name}`}
+                                className="inline-grid size-11 place-items-center rounded-lg border hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                              >
+                                <ExternalLink size={16} aria-hidden="true" />
+                              </Link>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -370,13 +405,12 @@ export default async function KnowledgeSourceDetailPage({
                   </button>
                 </form>
               ) : null}
-              <form action={reindexSourceAction}>
-                <input type="hidden" name="id" value={source.id} />
-                <button className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border px-4 text-sm font-semibold hover:bg-muted">
-                  <SearchCheck size={16} aria-hidden="true" /> Re-index
-                  documents
-                </button>
-              </form>
+              <SourceReindexForm
+                sourceId={source.id}
+                activeJobCount={activeJobCount}
+                reindexableJobCount={reindexableJobCount}
+                hasDocumentVersion={visibleVersions.length > 0}
+              />
               {source.type === "COPIED_TEXT" ? (
                 <Link
                   href={`/workspace/sources/copied-text/${source.id}/edit`}

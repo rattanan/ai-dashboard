@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { MessageFeedbackButtons } from "@/components/chat/message-feedback-buttons";
-import { readJsonResponse } from "@/lib/http-response";
+import { readChatStream } from "@/lib/chat-stream";
 
 type Message = {
   id: string;
@@ -33,6 +33,12 @@ type Message = {
   }>;
   toolActivity?: { type: string; status: string };
   rating?: number | null;
+};
+
+type ChatTurnResult = {
+  conversation: { id: string };
+  userMessage: { id: string; content: string };
+  assistantMessage: Message;
 };
 
 type Scope =
@@ -83,6 +89,7 @@ export function UniversalChat({
   const [messages, setMessages] = useState(initialMessages);
   const [message, setMessage] = useState("");
   const [pending, setPending] = useState(false);
+  const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState("");
   const showBot = scope === "SPECIFIC_BOT";
   const showSources = scope === "SPECIFIC_SOURCES";
@@ -97,6 +104,7 @@ export function UniversalChat({
     setMessages([]);
     setMessage("");
     setPending(false);
+    setStreaming(false);
     setError("");
   }
 
@@ -117,7 +125,12 @@ export function UniversalChat({
       content,
       citations: [],
     };
-    setMessages((items) => [...items, optimistic]);
+    const streamingId = `streaming-${Date.now()}`;
+    setMessages((items) => [
+      ...items,
+      optimistic,
+      { id: streamingId, role: "ASSISTANT", content: "", citations: [] },
+    ]);
     setMessage("");
     setPending(true);
     setError("");
@@ -134,26 +147,24 @@ export function UniversalChat({
           sourceIds: showSources ? sourceIds : [],
         }),
       });
-      const payload = await readJsonResponse<{
-        message?: string;
-        conversation?: { id: string };
-        userMessage?: { id: string; content: string };
-        assistantMessage?: Message;
-      }>(response, "The message could not be completed. Please try again.");
-      if (!response.ok)
-        throw new Error(
-          payload.message ?? "The message could not be completed.",
-        );
-      if (
-        !payload.conversation ||
-        !payload.userMessage ||
-        !payload.assistantMessage
-      )
-        throw new Error("The server returned an incomplete response.");
+      const payload = await readChatStream<ChatTurnResult>(response, {
+        onToken(token) {
+          setStreaming(true);
+          setMessages((items) =>
+            items.map((item) =>
+              item.id === streamingId
+                ? { ...item, content: item.content + token }
+                : item,
+            ),
+          );
+        },
+      });
       const { conversation, userMessage, assistantMessage } = payload;
       setConversationId(conversation.id);
       setMessages((items) => [
-        ...items.filter((item) => item.id !== optimistic.id),
+        ...items.filter(
+          (item) => item.id !== optimistic.id && item.id !== streamingId,
+        ),
         { ...userMessage, role: "USER", citations: [] },
         assistantMessage,
       ]);
@@ -167,9 +178,14 @@ export function UniversalChat({
           ? reason.message
           : "The message could not be completed.",
       );
-      setMessages((items) => items.filter((item) => item.id !== optimistic.id));
+      setMessages((items) =>
+        items.filter(
+          (item) => item.id !== optimistic.id && item.id !== streamingId,
+        ),
+      );
     } finally {
       setPending(false);
+      setStreaming(false);
     }
   }
 
@@ -372,6 +388,14 @@ export function UniversalChat({
                 className={`rounded-2xl px-4 py-3 text-sm leading-6 whitespace-pre-wrap ${item.role === "USER" ? "bg-primary text-primary-foreground" : "border bg-white"}`}
               >
                 {item.content}
+                {item.id.startsWith("streaming-") ? (
+                  <span
+                    className="ml-0.5 inline-block animate-pulse text-primary motion-reduce:animate-none"
+                    aria-hidden="true"
+                  >
+                    ▍
+                  </span>
+                ) : null}
               </div>
               {item.toolActivity ? (
                 <p className="mt-2 inline-flex rounded-full bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700">
@@ -399,7 +423,9 @@ export function UniversalChat({
                   Status: {item.errorCode}
                 </p>
               ) : null}
-              {item.role === "ASSISTANT" && !item.id.startsWith("pending-") ? (
+              {item.role === "ASSISTANT" &&
+              !item.id.startsWith("pending-") &&
+              !item.id.startsWith("streaming-") ? (
                 <div className="mt-2">
                   <MessageFeedbackButtons
                     messageId={item.id}
@@ -410,12 +436,17 @@ export function UniversalChat({
             </article>
           ))}
           {pending ? (
-            <p className="flex items-center gap-2 text-sm text-muted-foreground">
+            <p
+              className="flex items-center gap-2 text-sm text-muted-foreground"
+              role="status"
+            >
               <LoaderCircle
                 className="animate-spin motion-reduce:animate-none"
                 size={17}
               />{" "}
-              Resolving scope and grounded context…
+              {streaming
+                ? "Assistant is responding…"
+                : "Resolving scope and grounded context…"}
             </p>
           ) : null}
         </div>
@@ -425,6 +456,7 @@ export function UniversalChat({
           </p>
           <div className="flex gap-2">
             <textarea
+              aria-label="Message InsightKM"
               value={message}
               onChange={(event) => setMessage(event.target.value)}
               onKeyDown={(event) => {

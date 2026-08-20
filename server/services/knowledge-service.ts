@@ -171,6 +171,10 @@ export async function uploadKnowledgeDocument(
           embeddingModel,
         },
       });
+      await tx.knowledgeSource.update({
+        where: { id: source.id },
+        data: { status: "PROCESSING" },
+      });
       await tx.auditLog.create({
         data: {
           organizationId: context.organizationId,

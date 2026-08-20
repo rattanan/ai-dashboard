@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import {
   createSharedFolderSourceAction,
   createWebSourceAction,
@@ -8,6 +8,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 
 type RackChoice = { id: string; name: string };
 type ActionState =
@@ -90,13 +91,18 @@ function RackSelect({ id, racks }: { id: string; racks: RackChoice[] }) {
 export function SharedFolderSourceForm({
   racks,
   allowedRoots,
+  googleDriveServiceAccountEmail,
 }: {
   racks: RackChoice[];
   allowedRoots: string[];
+  googleDriveServiceAccountEmail?: string | null;
 }) {
   const [state, action, pending] = useActionState(
     createSharedFolderSourceAction,
     null,
+  );
+  const [location, setLocation] = useState<"GOOGLE_DRIVE" | "MOUNTED_FOLDER">(
+    "GOOGLE_DRIVE",
   );
   return (
     <form action={action} className="grid gap-4 md:grid-cols-2">
@@ -110,18 +116,92 @@ export function SharedFolderSourceForm({
         />
       </Field>
       <div className="md:col-span-2">
-        <Field label="Pre-mounted folder path" htmlFor="folder-path" required>
-          <Input
-            id="folder-path"
-            name="rootPath"
-            placeholder={`${allowedRoots[0] ?? "/mnt/insightkm-knowledge"}/policies`}
-            required
-          />
-        </Field>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Allowed root{allowedRoots.length === 1 ? "" : "s"}: {" "}
-          {allowedRoots.join(", ")}. Symbolic links are rejected.
-        </p>
+        <fieldset>
+          <legend className="text-sm font-medium">Folder location</legend>
+          <div className="mt-2 grid gap-3 sm:grid-cols-2">
+            {[
+              ["GOOGLE_DRIVE", "Google Drive", "Paste a shared folder URL"],
+              [
+                "MOUNTED_FOLDER",
+                "Mounted folder",
+                "Use an approved server path",
+              ],
+            ].map(([value, title, description]) => (
+              <label
+                key={value}
+                className={cn(
+                  "flex min-h-16 cursor-pointer items-start gap-3 rounded-lg border p-3",
+                  location === value && "border-primary bg-secondary",
+                )}
+              >
+                <input
+                  type="radio"
+                  name="sharedFolderLocation"
+                  value={value}
+                  checked={location === value}
+                  onChange={() =>
+                    setLocation(value as "GOOGLE_DRIVE" | "MOUNTED_FOLDER")
+                  }
+                  className="mt-1"
+                />
+                <span>
+                  <span className="block text-sm font-medium">{title}</span>
+                  <span className="block text-xs text-muted-foreground">
+                    {description}
+                  </span>
+                </span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+      </div>
+      <div className="md:col-span-2">
+        {location === "GOOGLE_DRIVE" ? (
+          <>
+            <Field
+              label="Google Drive folder URL"
+              htmlFor="folder-url"
+              hint="Share the folder with the service account as Viewer before creating the source."
+              required
+            >
+              <Input
+                id="folder-url"
+                name="rootPath"
+                type="url"
+                pattern="https://drive\.google\.com/drive/(u/[0-9]+/)?folders/[A-Za-z0-9_-]+.*"
+                placeholder="https://drive.google.com/drive/folders/…"
+                required
+              />
+            </Field>
+            <p
+              className="mt-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900"
+              role="note"
+            >
+              {googleDriveServiceAccountEmail
+                ? `Share this folder as Viewer with ${googleDriveServiceAccountEmail}.`
+                : "Google Drive is not configured on this server yet."}
+            </p>
+          </>
+        ) : (
+          <>
+            <Field
+              label="Pre-mounted folder path"
+              htmlFor="folder-path"
+              required
+            >
+              <Input
+                id="folder-path"
+                name="rootPath"
+                placeholder={`${allowedRoots[0] ?? "/mnt/insightkm-knowledge"}/policies`}
+                required
+              />
+            </Field>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Allowed root{allowedRoots.length === 1 ? "" : "s"}:{" "}
+              {allowedRoots.join(", ")}. Symbolic links are rejected.
+            </p>
+          </>
+        )}
       </div>
       <Field label="Maximum files per scan" htmlFor="folder-max-files">
         <Input

@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { MessageFeedbackButtons } from "@/components/chat/message-feedback-buttons";
+import { readChatStream } from "@/lib/chat-stream";
 import {
   deleteConversationAction,
   renameConversationAction,
@@ -36,6 +37,12 @@ type ChatMessage = {
   errorCode?: string | null;
   citations: Citation[];
   rating?: number | null;
+};
+
+type ChatTurnResult = {
+  conversation: { id: string };
+  userMessage: { id: string; content: string };
+  assistantMessage: ChatMessage;
 };
 
 export function KnowledgeChat({
@@ -67,6 +74,7 @@ export function KnowledgeChat({
   const [conversationId, setConversationId] = useState(selectedConversationId);
   const [input, setInput] = useState("");
   const [pending, setPending] = useState(false);
+  const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState<string>();
   const [search, setSearch] = useState(historyQuery);
   const [projectId, setProjectId] = useState("");
@@ -87,9 +95,11 @@ export function KnowledgeChat({
     setInput("");
     optimisticSequence.current += 1;
     const optimisticId = `pending-${optimisticSequence.current}`;
+    const streamingId = `streaming-${optimisticSequence.current}`;
     setMessages((current) => [
       ...current,
       { id: optimisticId, role: "USER", content: message, citations: [] },
+      { id: streamingId, role: "ASSISTANT", content: "", citations: [] },
     ]);
     try {
       const response = await fetch("/api/knowledge-chat", {
@@ -102,24 +112,25 @@ export function KnowledgeChat({
           message,
         }),
       });
-      const payload = (await response.json()) as {
-        message?: string;
-        conversation?: { id: string };
-        userMessage?: { id: string; content: string };
-        assistantMessage?: ChatMessage;
-      };
-      if (
-        !response.ok ||
-        !payload.conversation ||
-        !payload.userMessage ||
-        !payload.assistantMessage
-      )
-        throw new Error(payload.message ?? "The message could not be sent.");
+      const payload = await readChatStream<ChatTurnResult>(response, {
+        onToken(token) {
+          setStreaming(true);
+          setMessages((current) =>
+            current.map((item) =>
+              item.id === streamingId
+                ? { ...item, content: item.content + token }
+                : item,
+            ),
+          );
+        },
+      });
       setConversationId(payload.conversation.id);
       setMessages((current) => [
-        ...current.filter(({ id }) => id !== optimisticId),
-        { ...payload.userMessage!, role: "USER", citations: [] },
-        payload.assistantMessage!,
+        ...current.filter(
+          ({ id }) => id !== optimisticId && id !== streamingId,
+        ),
+        { ...payload.userMessage, role: "USER", citations: [] },
+        payload.assistantMessage,
       ]);
       if (!conversationId) {
         router.replace(
@@ -128,7 +139,9 @@ export function KnowledgeChat({
         router.refresh();
       }
     } catch (caught) {
-      setMessages((current) => current.filter(({ id }) => id !== optimisticId));
+      setMessages((current) =>
+        current.filter(({ id }) => id !== optimisticId && id !== streamingId),
+      );
       setError(
         caught instanceof Error
           ? caught.message
@@ -136,6 +149,7 @@ export function KnowledgeChat({
       );
     } finally {
       setPending(false);
+      setStreaming(false);
     }
   }
 
@@ -312,7 +326,17 @@ export function KnowledgeChat({
                     : "rounded-2xl rounded-bl-sm border bg-white px-5 py-4 text-sm leading-7 shadow-sm"
                 }
               >
-                <p className="whitespace-pre-wrap">{message.content}</p>
+                <p className="whitespace-pre-wrap">
+                  {message.content}
+                  {message.id.startsWith("streaming-") ? (
+                    <span
+                      className="ml-0.5 inline-block animate-pulse text-indigo-600 motion-reduce:animate-none"
+                      aria-hidden="true"
+                    >
+                      ▍
+                    </span>
+                  ) : null}
+                </p>
                 {message.citations.length ? (
                   <div className="mt-4 space-y-2 border-t pt-3">
                     <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -456,7 +480,8 @@ export function KnowledgeChat({
                   </div>
                 ) : null}
               </article>
-              {message.role === "ASSISTANT" ? (
+              {message.role === "ASSISTANT" &&
+              !message.id.startsWith("streaming-") ? (
                 <div className="mt-2 flex flex-wrap items-start gap-1">
                   <MessageFeedbackButtons
                     messageId={message.id}
@@ -527,7 +552,9 @@ export function KnowledgeChat({
               className="mr-auto rounded-2xl border bg-white px-5 py-3 text-sm text-muted-foreground"
               role="status"
             >
-              Searching governed knowledge and preparing an answer…
+              {streaming
+                ? "Assistant is responding…"
+                : "Searching governed knowledge and preparing an answer…"}
             </li>
           ) : null}
         </ol>

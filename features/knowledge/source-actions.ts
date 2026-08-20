@@ -18,11 +18,13 @@ import {
 } from "@/server/services/source-operations";
 import { failure } from "@/types/result";
 
-function refreshOperationsViews() {
+function refreshOperationsViews(sourceId?: string) {
   revalidatePath("/workspace/sources");
   revalidatePath("/workspace/admin/knowledge");
   revalidatePath("/workspace/admin/knowledge/sources");
   revalidatePath("/workspace/admin/knowledge/index-jobs");
+  if (sourceId)
+    revalidatePath(`/workspace/admin/knowledge/sources/${sourceId}`);
 }
 
 export async function createSharedFolderSourceAction(
@@ -96,9 +98,18 @@ export async function cancelIndexJobAction(formData: FormData) {
 }
 
 export async function reindexSourceAction(formData: FormData) {
+  await reindexSourceWithFeedbackAction(null, formData);
+}
+
+export async function reindexSourceWithFeedbackAction(
+  _state: unknown,
+  formData: FormData,
+) {
   const context = await authorizedContext();
   const parsed = resourceIdSchema.safeParse(Object.fromEntries(formData));
-  if (!parsed.success) return;
-  await reindexSource(context, parsed.data.id);
-  refreshOperationsViews();
+  if (!parsed.success)
+    return failure("VALIDATION_ERROR", "Knowledge source is invalid.");
+  const result = await reindexSource(context, parsed.data.id);
+  if (result.ok) refreshOperationsViews(parsed.data.id);
+  return result;
 }

@@ -29,6 +29,7 @@ import {
   resolvedAiEndpointUrl,
 } from "@/server/services/ai-endpoint-service";
 import { fetchAiWithRetry } from "@/packages/ai/fetch-with-retry";
+import { readChatCompletionResponse } from "@/server/ai/chat-completion-stream";
 
 function isThai(value: string) {
   return /[\u0E00-\u0E7F]/.test(value);
@@ -223,6 +224,7 @@ async function generateAnswer(input: {
   query: string;
   evidence: GroundingEvidence[];
   memory: Array<{ role: string; content: string }>;
+  onToken?: (token: string) => void | Promise<void>;
 }) {
   const provider = await resolveChatProvider(
     input.organizationId,
@@ -255,6 +257,7 @@ async function generateAnswer(input: {
         model: provider.model,
         temperature: input.bot.providerConfig?.temperature ?? 0.1,
         max_tokens: input.bot.providerConfig?.maxTokens ?? 2_048,
+        stream: true,
         messages: [
           {
             role: "system",
@@ -277,20 +280,7 @@ async function generateAnswer(input: {
   );
   if (!response.ok)
     throw new Error(`Chat provider returned HTTP ${response.status}`);
-  const payload = (await response.json()) as {
-    choices?: Array<{ message?: { content?: string } }>;
-    usage?: {
-      prompt_tokens?: number;
-      completion_tokens?: number;
-    };
-  };
-  const content = payload.choices?.[0]?.message?.content?.trim();
-  if (!content) throw new Error("Chat provider returned an empty answer");
-  return {
-    content,
-    inputTokens: payload.usage?.prompt_tokens,
-    outputTokens: payload.usage?.completion_tokens,
-  };
+  return readChatCompletionResponse(response, input.onToken);
 }
 
 type DatabaseChatResult = {
@@ -481,6 +471,7 @@ export async function sendKnowledgeChatMessage(
       | "QUERY_LIVE_DATA";
     sourceIds?: string[];
     isUniversal?: boolean;
+    onToken?: (token: string) => void | Promise<void>;
   },
 ) {
   await requireBotUse(context, input.botId);
@@ -688,6 +679,12 @@ export async function sendKnowledgeChatMessage(
     outputTokens?: number;
   };
   let errorCode: string | undefined;
+  let emittedToken = false;
+  const emitToken = async (token: string) => {
+    if (!token || !input.onToken) return;
+    emittedToken = true;
+    await input.onToken(token);
+  };
   if (databaseAnswer) {
     answer = { content: databaseAnswer.content };
     if (databaseAnswer.failed) errorCode = "DATABASE_QUERY_ERROR";
@@ -711,6 +708,7 @@ export async function sendKnowledgeChatMessage(
           ...message,
           content: maskFreeText(message.content, privacyPolicy),
         })),
+        onToken: emitToken,
       });
     } catch {
       answer = {
@@ -721,6 +719,7 @@ export async function sendKnowledgeChatMessage(
       errorCode = "AI_PROVIDER_ERROR";
     }
   }
+  if (!emittedToken) await emitToken(answer.content);
   const assistant = await db.$transaction(async (tx) => {
     const message = await tx.chatMessage.create({
       data: {
@@ -945,6 +944,7 @@ export async function sendUniversalChatMessage(
       | "GENERATE_REPORT"
       | "QUERY_LIVE_DATA";
     sourceIds: string[];
+    onToken?: (token: string) => void | Promise<void>;
   },
 ) {
   const existingConversation = input.conversationId
@@ -999,5 +999,6 @@ export async function sendUniversalChatMessage(
     sourceIds: input.sourceIds,
     isUniversal: true,
     authMode: context.authMode ?? "LOCAL",
+    onToken: input.onToken,
   });
 }

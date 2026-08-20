@@ -76,6 +76,7 @@ export const envSchema = z.object({
     .min(1)
     .max(100_000)
     .default(10_000),
+  GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON: z.string().min(1).optional(),
   KNOWLEDGE_WEB_MAX_BYTES: z.coerce
     .number()
     .int()

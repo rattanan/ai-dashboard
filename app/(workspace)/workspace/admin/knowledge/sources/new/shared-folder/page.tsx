@@ -6,6 +6,7 @@ import { requirePermission } from "@/server/auth/permissions";
 import { db } from "@/server/db";
 import { configuredSharedRoots } from "@/packages/knowledge/source-security";
 import { env } from "@/schemas/env";
+import { configuredGoogleDriveServiceAccountEmail } from "@/packages/knowledge/google-drive-url";
 
 export default async function NewSharedFolderSourcePage() {
   const context = await requireAuthorization();
@@ -15,8 +16,12 @@ export default async function NewSharedFolderSourcePage() {
     select: { id: true, name: true },
     orderBy: { name: "asc" },
   });
+  const configuration = env();
   const sharedFolderRoots = configuredSharedRoots(
-    env().KNOWLEDGE_SHARED_FOLDER_ROOTS,
+    configuration.KNOWLEDGE_SHARED_FOLDER_ROOTS,
+  );
+  const googleDriveEmail = configuredGoogleDriveServiceAccountEmail(
+    configuration.GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON,
   );
 
   return (
@@ -24,7 +29,7 @@ export default async function NewSharedFolderSourcePage() {
       <PageHeader
         eyebrow="Shared folder sources"
         title="Add shared folder"
-        description="Connect an allowlisted, pre-mounted folder for incremental worker ingestion."
+        description="Connect Google Drive or an allowlisted mounted folder for incremental worker ingestion."
         action={
           <Link
             href="/workspace/admin/knowledge/sources?type=SHARED_FOLDER"
@@ -38,6 +43,7 @@ export default async function NewSharedFolderSourcePage() {
         <SharedFolderSourceForm
           racks={racks}
           allowedRoots={sharedFolderRoots}
+          googleDriveServiceAccountEmail={googleDriveEmail}
         />
       </section>
     </div>

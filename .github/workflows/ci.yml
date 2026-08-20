@@ -2,8 +2,6 @@ name: InsightKM CI
 
 on:
   pull_request:
-  push:
-    branches: [main, "codex/**"]
 
 jobs:
   verify:

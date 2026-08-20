@@ -1,6 +1,9 @@
 import { getAuthorizationContext } from "@/server/auth/authorization";
 import { chatRequestSchema } from "@/schemas/knowledge";
+import { chatStreamResponse } from "@/server/http/chat-stream-response";
 import { sendKnowledgeChatMessage } from "@/server/services/chat-service";
+
+export const maxDuration = 60;
 
 export async function POST(request: Request) {
   const context = await getAuthorizationContext();
@@ -15,23 +18,13 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   try {
-    const result = await sendKnowledgeChatMessage(context, {
-      ...parsed.data,
-      authMode: context.authMode ?? "LOCAL",
-    });
-    if (!result.ok)
-      return Response.json(
-        { error: result.error.code, message: result.error.message },
-        {
-          status:
-            result.error.code === "NOT_FOUND"
-              ? 404
-              : result.error.code === "AI_RATE_LIMITED"
-                ? 429
-                : 400,
-        },
-      );
-    return Response.json(result.data);
+    return chatStreamResponse((onToken) =>
+      sendKnowledgeChatMessage(context, {
+        ...parsed.data,
+        authMode: context.authMode ?? "LOCAL",
+        onToken,
+      }),
+    );
   } catch (error) {
     const notFound = error instanceof Error && error.message === "NOT_FOUND";
     return Response.json(

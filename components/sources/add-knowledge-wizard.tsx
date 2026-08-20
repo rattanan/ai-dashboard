@@ -60,7 +60,7 @@ const kinds: Array<{
   {
     value: "SHARED_FOLDER",
     title: "Shared Folder",
-    description: "Sync an approved, pre-mounted team folder",
+    description: "Sync Google Drive or an approved mounted folder",
     icon: FolderSync,
   },
 ];
@@ -70,9 +70,11 @@ const steps = ["Choose type", "Add details", "Set access"];
 export function AddKnowledgeWizard({
   folders,
   bots,
+  googleDriveServiceAccountEmail,
 }: {
   folders: Choice[];
   bots: Choice[];
+  googleDriveServiceAccountEmail?: string | null;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
@@ -85,6 +87,9 @@ export function AddKnowledgeWizard({
     "SELECTED_BOTS",
   );
   const [fileName, setFileName] = useState("");
+  const [sharedFolderLocation, setSharedFolderLocation] = useState<
+    "GOOGLE_DRIVE" | "MOUNTED_FOLDER"
+  >("GOOGLE_DRIVE");
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [complete, setComplete] = useState(false);
@@ -145,6 +150,7 @@ export function AddKnowledgeWizard({
     setKind("FILE");
     setScope("SELECTED_BOTS");
     setFileName("");
+    setSharedFolderLocation("GOOGLE_DRIVE");
     setUploadError(null);
     setComplete(false);
     selectedFileRef.current = null;
@@ -478,19 +484,96 @@ export function AddKnowledgeWizard({
                     ) : null}
                     {kind === "SHARED_FOLDER" ? (
                       <>
-                        <Field
-                          label="Pre-mounted folder path"
-                          htmlFor="knowledge-folder-path"
-                          hint="The folder must be inside an administrator-approved shared root."
-                          required
-                        >
-                          <Input
-                            id="knowledge-folder-path"
-                            name="rootPath"
-                            placeholder="/mnt/knowledge/team-policies"
+                        <fieldset>
+                          <legend className="text-sm font-medium">
+                            Folder location
+                          </legend>
+                          <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                            {[
+                              {
+                                value: "GOOGLE_DRIVE" as const,
+                                title: "Google Drive",
+                                description: "Paste a shared folder URL",
+                              },
+                              {
+                                value: "MOUNTED_FOLDER" as const,
+                                title: "Mounted folder",
+                                description: "Use an approved server path",
+                              },
+                            ].map((option) => (
+                              <label
+                                key={option.value}
+                                className={cn(
+                                  "flex min-h-16 cursor-pointer items-start gap-3 rounded-lg border p-3",
+                                  sharedFolderLocation === option.value &&
+                                    "border-primary bg-secondary",
+                                )}
+                              >
+                                <input
+                                  type="radio"
+                                  name="sharedFolderLocation"
+                                  value={option.value}
+                                  checked={
+                                    sharedFolderLocation === option.value
+                                  }
+                                  onChange={() =>
+                                    setSharedFolderLocation(option.value)
+                                  }
+                                  className="mt-1"
+                                />
+                                <span>
+                                  <span className="block text-sm font-medium">
+                                    {option.title}
+                                  </span>
+                                  <span className="block text-xs text-muted-foreground">
+                                    {option.description}
+                                  </span>
+                                </span>
+                              </label>
+                            ))}
+                          </div>
+                        </fieldset>
+                        {sharedFolderLocation === "GOOGLE_DRIVE" ? (
+                          <Field
+                            label="Google Drive folder URL"
+                            htmlFor="knowledge-folder-url"
+                            hint="Share the folder with the service account, then paste its drive.google.com/drive/folders/… URL."
                             required
-                          />
-                        </Field>
+                          >
+                            <Input
+                              id="knowledge-folder-url"
+                              name="rootPath"
+                              type="url"
+                              pattern="https://drive\.google\.com/drive/(u/[0-9]+/)?folders/[A-Za-z0-9_-]+.*"
+                              placeholder="https://drive.google.com/drive/folders/…"
+                              required
+                            />
+                          </Field>
+                        ) : (
+                          <Field
+                            label="Pre-mounted folder path"
+                            htmlFor="knowledge-folder-path"
+                            hint="The folder must be inside an administrator-approved shared root."
+                            required
+                          >
+                            <Input
+                              id="knowledge-folder-path"
+                              name="rootPath"
+                              placeholder="/mnt/knowledge/team-policies"
+                              required
+                            />
+                          </Field>
+                        )}
+                        {sharedFolderLocation === "GOOGLE_DRIVE" ? (
+                          <p
+                            className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900"
+                            role="note"
+                          >
+                            {googleDriveServiceAccountEmail
+                              ? `Share this folder as Viewer with ${googleDriveServiceAccountEmail}.`
+                              : "Google Drive is not configured on this server yet. Ask an administrator to add a service account before saving."}
+                          </p>
+                        ) : null}
                         <input type="hidden" name="maxFiles" value="10000" />
                         <input
                           type="hidden"

@@ -6,12 +6,17 @@ import { PageHeader } from "@/components/ui/page-header";
 import { requireAuthorization } from "@/server/auth/authorization";
 import { requirePermission } from "@/server/auth/permissions";
 import { db } from "@/server/db";
+import { env } from "@/schemas/env";
+import { configuredGoogleDriveServiceAccountEmail } from "@/packages/knowledge/google-drive-url";
 
 export const metadata = { title: "All knowledge" };
 
 export default async function KnowledgeExplorerPage() {
   const context = await requireAuthorization();
   await requirePermission(context, "knowledge.manage");
+  const googleDriveEmail = configuredGoogleDriveServiceAccountEmail(
+    env().GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON,
+  );
   const [racks, bots] = await Promise.all([
     db.knowledgeRack.findMany({
       where: { organizationId: context.organizationId },
@@ -114,6 +119,7 @@ export default async function KnowledgeExplorerPage() {
                 .filter((rack) => rack.active)
                 .map((rack) => ({ id: rack.id, name: rack.name }))}
               bots={bots}
+              googleDriveServiceAccountEmail={googleDriveEmail}
             />
             <Link
               href="/workspace/admin/knowledge/access"

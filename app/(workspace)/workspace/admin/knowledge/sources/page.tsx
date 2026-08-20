@@ -8,6 +8,7 @@ import {
 import { requireAuthorization } from "@/server/auth/authorization";
 import { requirePermission } from "@/server/auth/permissions";
 import { db } from "@/server/db";
+import { isGoogleDriveFolderUrl } from "@/packages/knowledge/google-drive-url";
 
 function dateTime(value: Date | null | undefined) {
   return value
@@ -40,7 +41,7 @@ function sourceDescription(source: {
   } | null;
 }) {
   if (source.sharedFolderConfig)
-    return `${source.sharedFolderConfig.rootPath} · ${source.sharedFolderConfig.scheduleEnabled ? `every ${source.sharedFolderConfig.intervalMinutes} min` : "manual refresh"}`;
+    return `${isGoogleDriveFolderUrl(source.sharedFolderConfig.rootPath) ? "Google Drive" : source.sharedFolderConfig.rootPath} · ${source.sharedFolderConfig.scheduleEnabled ? `every ${source.sharedFolderConfig.intervalMinutes} min` : "manual refresh"}`;
   if (source.webConfig)
     return `${source.webConfig.url} · ${source.webConfig.scheduleEnabled ? `every ${source.webConfig.intervalMinutes} min` : "manual refresh"}`;
   return source.type;

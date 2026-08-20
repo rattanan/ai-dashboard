@@ -93,19 +93,24 @@ describe("universal chat navigation", () => {
   });
 
   it("updates the URL after the first message creates a conversation", async () => {
+    const result = {
+      conversation: { id: "conversation/new id" },
+      userMessage: { id: "message-user", content: "Hello" },
+      assistantMessage: {
+        id: "message-assistant",
+        role: "ASSISTANT",
+        content: "Hi",
+        citations: [],
+      },
+    };
     vi.mocked(fetch).mockResolvedValue(
       new Response(
-        JSON.stringify({
-          conversation: { id: "conversation/new id" },
-          userMessage: { id: "message-user", content: "Hello" },
-          assistantMessage: {
-            id: "message-assistant",
-            role: "ASSISTANT",
-            content: "Hi",
-            citations: [],
-          },
-        }),
-        { status: 200, headers: { "content-type": "application/json" } },
+        [
+          `event: token\ndata: ${JSON.stringify("H")}\n\n`,
+          `event: token\ndata: ${JSON.stringify("i")}\n\n`,
+          `event: result\ndata: ${JSON.stringify(result)}\n\n`,
+        ].join(""),
+        { status: 200, headers: { "content-type": "text/event-stream" } },
       ),
     );
     render(
