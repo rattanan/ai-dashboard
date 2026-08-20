@@ -39,7 +39,9 @@ export async function POST(
             ? 404
             : result.error.code === "FORBIDDEN"
               ? 403
-              : 400,
+              : result.error.code === "INTERNAL_ERROR"
+                ? 503
+                : 400,
       },
     );
   return Response.json(result.data, {

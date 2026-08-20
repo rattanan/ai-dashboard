@@ -7,6 +7,7 @@ import { env } from "@/schemas/env";
 import { isSupportedDocument } from "@/packages/knowledge/document-types";
 import { LocalObjectStorageService } from "@/server/storage/local-storage";
 import { enqueueDocumentIndexJob } from "@/server/services/job-queue";
+import { logger } from "@/server/services/logger";
 import { failure, success } from "@/types/result";
 
 function validMagic(bytes: Buffer, fileName: string) {
@@ -122,7 +123,22 @@ export async function uploadKnowledgeDocument(
   const storage = new LocalObjectStorageService(
     path.resolve(configuration.LOCAL_STORAGE_PATH),
   );
-  const stored = await storage.put({ bytes, originalName: file.name });
+  let stored: Awaited<ReturnType<LocalObjectStorageService["put"]>>;
+  try {
+    stored = await storage.put({ bytes, originalName: file.name });
+  } catch (error) {
+    logger.error("Knowledge file storage failed", {
+      sourceId: source.id,
+      errorCode:
+        error && typeof error === "object" && "code" in error
+          ? String(error.code)
+          : "UNKNOWN",
+    });
+    return failure(
+      "INTERNAL_ERROR",
+      "File storage is unavailable. Check System Health and retry the upload.",
+    );
+  }
   const embeddingModel = await embeddingModelForOrganization(
     context.organizationId,
   );

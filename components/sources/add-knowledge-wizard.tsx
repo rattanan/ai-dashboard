@@ -2,6 +2,7 @@
 
 import {
   useActionState,
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -99,6 +100,48 @@ export function AddKnowledgeWizard({
     boolean,
   ];
 
+  const uploadSelectedFile = useCallback(
+    async (sourceId: string) => {
+      const file = selectedFileRef.current;
+      if (!file) {
+        setUploadError(
+          "The source was created, but the selected file is missing. Close this dialog and select the file again.",
+        );
+        return;
+      }
+      setUploadError(null);
+      setUploading(true);
+      const body = new FormData();
+      body.set("file", file);
+      try {
+        const response = await fetch(
+          `/api/knowledge-sources/${sourceId}/documents`,
+          {
+            method: "POST",
+            body,
+          },
+        );
+        if (!response.ok) {
+          const payload = (await response.json().catch(() => null)) as {
+            message?: string;
+          } | null;
+          throw new Error(
+            payload?.message ?? `File upload failed (HTTP ${response.status}).`,
+          );
+        }
+        setComplete(true);
+        router.refresh();
+      } catch (error: unknown) {
+        setUploadError(
+          error instanceof Error ? error.message : "File upload failed.",
+        );
+      } finally {
+        setUploading(false);
+      }
+    },
+    [router],
+  );
+
   useEffect(() => {
     if (!state?.ok || handledSource.current === state.data.id) return;
     handledSource.current = state.data.id;
@@ -111,39 +154,9 @@ export function AddKnowledgeWizard({
       // A successful React form action resets uncontrolled fields before this
       // effect runs. Keep the selected File separately so the follow-up upload
       // is not lost when the file input is cleared.
-      const file = selectedFileRef.current;
-      if (!file) {
-        setUploadError(
-          "The source was created, but the selected file is missing.",
-        );
-        return;
-      }
-      setUploading(true);
-      const body = new FormData();
-      body.set("file", file);
-      fetch(`/api/knowledge-sources/${state.data.id}/documents`, {
-        method: "POST",
-        body,
-      })
-        .then(async (response) => {
-          if (response.ok) return;
-          const payload = (await response.json().catch(() => null)) as {
-            message?: string;
-          } | null;
-          throw new Error(payload?.message ?? "File upload failed.");
-        })
-        .then(() => {
-          setComplete(true);
-          router.refresh();
-        })
-        .catch((error: unknown) => {
-          setUploadError(
-            error instanceof Error ? error.message : "File upload failed.",
-          );
-        })
-        .finally(() => setUploading(false));
+      void uploadSelectedFile(state.data.id);
     });
-  }, [router, state]);
+  }, [router, state, uploadSelectedFile]);
 
   function resetWizard() {
     setStep(1);
@@ -740,6 +753,14 @@ export function AddKnowledgeWizard({
                       }}
                     >
                       Continue <ChevronRight size={18} />
+                    </Button>
+                  ) : uploadError && state?.ok && state.data.uploadRequired ? (
+                    <Button
+                      type="button"
+                      onClick={() => void uploadSelectedFile(state.data.id)}
+                      disabled={uploading}
+                    >
+                      {uploading ? "Uploading…" : "Retry upload"}
                     </Button>
                   ) : (
                     <Button
