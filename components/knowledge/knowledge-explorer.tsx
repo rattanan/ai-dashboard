@@ -56,6 +56,7 @@ type ExplorerFolder = {
   description: string | null;
   scope: "GLOBAL" | "SELECTED_BOTS";
   botNames: string[];
+  documentCount: number;
   sources: ExplorerSource[];
 };
 
@@ -211,6 +212,7 @@ export function KnowledgeExplorer({ folders }: { folders: ExplorerFolder[] }) {
                 resourceId={folder.id}
                 resourceName={folder.name}
                 sourceCount={folder.sources.length}
+                documentCount={folder.documentCount}
                 compact
               />
             ) : null}

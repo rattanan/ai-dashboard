@@ -377,6 +377,7 @@ describe.skipIf(!connectionString)("Phase 2 governed document RAG", () => {
       EMBEDDING_TIMEOUT_MS: 5_000,
       AI_MAX_RETRIES: 2,
       EMBEDDING_BATCH_SIZE: 4,
+      EMBEDDING_BATCH_CONCURRENCY: 2,
       REDIS_URL: "redis://127.0.0.1:6379/0",
       BULLMQ_PREFIX: "insightkm-test",
       WORKER_CONCURRENCY: 1,

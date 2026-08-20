@@ -157,6 +157,7 @@ Use the base64 value for `CREDENTIAL_ENCRYPTION_KEY` (or the dedicated `DATA_SOU
 | `EMBEDDING_MODEL`                     | Fallback embedding model and persisted index model version                     |
 | `EMBEDDING_TIMEOUT_MS`                | Absolute embedding-request timeout                                             |
 | `EMBEDDING_BATCH_SIZE`                | Number of document chunks embedded in one worker request                       |
+| `EMBEDDING_BATCH_CONCURRENCY`         | Concurrent embedding requests per document; defaults to 4 and is capped at 8   |
 | `REDIS_URL`                           | Redis connection URL used by BullMQ producers and health checks                |
 | `BULLMQ_PREFIX`                       | Queue namespace; defaults to `insightkm`                                       |
 | `WORKER_CONCURRENCY`                  | Concurrent jobs handled by one worker process                                  |

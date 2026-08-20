@@ -38,6 +38,8 @@ export function DeleteKnowledgeDialog({
   const titleId = `delete-${kind}-${resourceId}-title`;
   const descriptionId = `delete-${kind}-${resourceId}-description`;
   const inputId = `delete-${kind}-${resourceId}-confirmation`;
+  const blockedDescriptionId = `delete-${kind}-${resourceId}-blocked`;
+  const folderHasDocuments = kind === "folder" && documentCount > 0;
   const fieldError =
     state && !state.ok
       ? state.error.fieldErrors?.confirmationName?.[0]
@@ -54,16 +56,46 @@ export function DeleteKnowledgeDialog({
 
   return (
     <>
-      <Button
-        type="button"
-        variant="destructive"
-        size={compact ? "sm" : "default"}
-        className={compact ? "shrink-0" : undefined}
-        onClick={() => dialogRef.current?.showModal()}
-      >
-        <Trash2 size={compact ? 15 : 17} aria-hidden="true" />
-        {compact ? "Delete" : `Delete ${label}`}
-      </Button>
+      {compact ? (
+        <span
+          className="inline-flex shrink-0"
+          title={
+            folderHasDocuments
+              ? "Remove all documents before deleting this folder"
+              : `Delete folder ${resourceName}`
+          }
+        >
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="size-9 min-h-9 p-0 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+            onClick={() => dialogRef.current?.showModal()}
+            disabled={folderHasDocuments}
+            aria-label={`Delete folder ${resourceName}`}
+            aria-describedby={
+              folderHasDocuments ? blockedDescriptionId : undefined
+            }
+          >
+            <Trash2 size={17} aria-hidden="true" />
+          </Button>
+          {folderHasDocuments ? (
+            <span id={blockedDescriptionId} className="sr-only">
+              This folder contains documents. Remove all documents before
+              deleting the folder.
+            </span>
+          ) : null}
+        </span>
+      ) : (
+        <Button
+          type="button"
+          variant="destructive"
+          onClick={() => dialogRef.current?.showModal()}
+        >
+          <Trash2 size={17} aria-hidden="true" />
+          Delete {label}
+        </Button>
+      )}
       <dialog
         ref={dialogRef}
         aria-labelledby={titleId}

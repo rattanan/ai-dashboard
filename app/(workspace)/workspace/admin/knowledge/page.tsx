@@ -24,6 +24,7 @@ export default async function KnowledgeExplorerPage() {
         bots: { include: { bot: { select: { name: true } } } },
         sources: {
           include: {
+            _count: { select: { documents: true } },
             botAssignments: {
               include: { bot: { select: { name: true } } },
               orderBy: { priority: "asc" },
@@ -72,6 +73,10 @@ export default async function KnowledgeExplorerPage() {
     description: rack.description,
     scope: rack.scope,
     botNames: rack.bots.map((item) => item.bot.name),
+    documentCount: rack.sources.reduce(
+      (total, source) => total + source._count.documents,
+      0,
+    ),
     sources: rack.sources.map((source) => ({
       id: source.id,
       name: source.name,

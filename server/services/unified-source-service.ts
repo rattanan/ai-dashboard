@@ -505,9 +505,7 @@ export async function deleteKnowledgeFolder(
     include: {
       sources: {
         select: {
-          documents: {
-            select: { versions: { select: { storageKey: true } } },
-          },
+          _count: { select: { documents: true } },
         },
       },
       _count: { select: { sources: true } },
@@ -515,6 +513,16 @@ export async function deleteKnowledgeFolder(
   });
   if (!folder) return failure("NOT_FOUND", "Folder not found.");
   await requireKnowledgeRackAccess(context, folder.id, "MANAGE");
+  const documentCount = folder.sources.reduce(
+    (total, source) => total + source._count.documents,
+    0,
+  );
+  if (documentCount > 0)
+    return failure(
+      "CONFLICT",
+      "Remove all documents before deleting this folder.",
+      { diagnostics: { documentCount } },
+    );
   if (confirmationName !== folder.name)
     return failure(
       "VALIDATION_ERROR",
@@ -523,13 +531,14 @@ export async function deleteKnowledgeFolder(
     );
 
   const requestId = crypto.randomUUID();
-  const storageKeys = folder.sources.flatMap((source) =>
-    source.documents.flatMap((document) =>
-      document.versions.map((version) => version.storageKey),
-    ),
-  );
-  await db.$transaction(async (tx) => {
-    await tx.knowledgeRack.delete({ where: { id: folder.id } });
+  const deleted = await db.$transaction(async (tx) => {
+    const result = await tx.knowledgeRack.deleteMany({
+      where: {
+        id: folder.id,
+        sources: { none: { documents: { some: {} } } },
+      },
+    });
+    if (!result.count) return false;
     await tx.auditLog.create({
       data: {
         organizationId: context.organizationId,
@@ -542,15 +551,16 @@ export async function deleteKnowledgeFolder(
         requestId,
         beforeValue: {
           sourceCount: folder._count.sources,
-          storedObjectCount: storageKeys.length,
+          storedObjectCount: 0,
         },
       },
     });
+    return true;
   });
-  await deleteStoredKnowledgeObjects(storageKeys, {
-    requestId,
-    entityId: folder.id,
-    entityType: "KnowledgeRack",
-  });
+  if (!deleted)
+    return failure(
+      "CONFLICT",
+      "Remove all documents before deleting this folder.",
+    );
   return success({ deleted: true as const, id: folder.id });
 }

@@ -81,7 +81,10 @@ function maskPreviewInput(value: string) {
     .replace(/\b(?:\+?\d[\d ()-]{7,}\d)\b/g, "[PHONE]")
     .replace(/\b\d{9,16}\b/g, "[IDENTIFIER]")
     .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, "[JWT]")
-    .replace(/\b(?:api[_-]?key|password|secret|token)\s*[:=]\s*\S+/gi, "[SECRET]")
+    .replace(
+      /\b(?:api[_-]?key|password|secret|token)\s*[:=]\s*\S+/gi,
+      "[SECRET]",
+    )
     .replace(/\b(?:bearer\s+)?[A-Za-z0-9_-]{24,}\b/gi, "[REDACTED]");
 }
 
@@ -267,9 +270,7 @@ async function embedBatch(
 export function isRetryableEmbeddingBatchError(error: unknown) {
   if (!(error instanceof Error)) return false;
   return (
-    /Endpoint returned HTTP (?:408|409|425|429|5\d\d)\b/i.test(
-      error.message,
-    ) ||
+    /Endpoint returned HTTP (?:408|409|425|429|5\d\d)\b/i.test(error.message) ||
     error.name === "TimeoutError" ||
     /fetch failed|network|socket/i.test(error.message)
   );
@@ -406,9 +407,15 @@ export async function processDocumentIndexJob(
           : `${endpointBase}/embeddings`
       : environment.EMBEDDING_BASE_URL;
     const batchSize = job.endpointBatchSize ?? environment.EMBEDDING_BATCH_SIZE;
+    const batchConcurrency = environment.EMBEDDING_BATCH_CONCURRENCY;
     const apiKey = decryptProviderKey(job, environment);
     const embeddings: number[][] = [];
-    for (let offset = 0; offset < chunks.length; offset += batchSize) {
+    const waveSize = batchSize * batchConcurrency;
+    for (
+      let waveOffset = 0;
+      waveOffset < chunks.length;
+      waveOffset += waveSize
+    ) {
       const cancellation = await pool.query<{ status: string }>(
         `SELECT status FROM "DocumentIndexJob" WHERE id = $1`,
         [indexJobId],
@@ -428,22 +435,34 @@ export async function processDocumentIndexJob(
         );
         return { indexJobId, chunkCount: 0, skipped: true as const };
       }
-      embeddings.push(
-        ...(await embedBatchWithFallback(
-          chunks
-            .slice(offset, offset + batchSize)
-            .map((chunk) => chunk.content),
-          {
-            url: endpoint,
-            model: job.embeddingModel,
-            apiKey,
-            timeoutMs:
-              job.endpointTimeoutMs ?? environment.EMBEDDING_TIMEOUT_MS,
-            maxRetries: job.endpointMaxRetries ?? environment.AI_MAX_RETRIES,
-          },
-        )),
+      const offsets = Array.from(
+        {
+          length: Math.min(
+            batchConcurrency,
+            Math.ceil((chunks.length - waveOffset) / batchSize),
+          ),
+        },
+        (_, index) => waveOffset + index * batchSize,
       );
-      const processed = Math.min(chunks.length, offset + batchSize);
+      const batches = await Promise.all(
+        offsets.map((offset) =>
+          embedBatchWithFallback(
+            chunks
+              .slice(offset, offset + batchSize)
+              .map((chunk) => chunk.content),
+            {
+              url: endpoint,
+              model: job.embeddingModel,
+              apiKey,
+              timeoutMs:
+                job.endpointTimeoutMs ?? environment.EMBEDDING_TIMEOUT_MS,
+              maxRetries: job.endpointMaxRetries ?? environment.AI_MAX_RETRIES,
+            },
+          ),
+        ),
+      );
+      embeddings.push(...batches.flat());
+      const processed = Math.min(chunks.length, waveOffset + waveSize);
       await pool.query(
         `UPDATE "DocumentIndexJob" SET "processedChunks" = $2,
                 "progressPercent" = $3, "lastHeartbeatAt" = CURRENT_TIMESTAMP,

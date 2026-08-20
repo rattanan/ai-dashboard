@@ -79,7 +79,7 @@ export default async function WorkspacePage() {
           </div>
           <div className="flex shrink-0 flex-wrap gap-3">
             <Button asChild variant="outline">
-              <Link href="/workspace/dashboards">
+              <Link href="/workspace/analytics/overview">
                 <Lightbulb size={17} /> View insights
               </Link>
             </Button>

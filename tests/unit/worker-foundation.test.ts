@@ -13,11 +13,13 @@ describe("Phase 0 worker foundation", () => {
         REDIS_URL: "rediss://queue.example.test:6380/1",
         BULLMQ_PREFIX: "insightkm:test",
         WORKER_CONCURRENCY: "7",
+        EMBEDDING_BATCH_CONCURRENCY: "3",
       }),
     ).toMatchObject({
       REDIS_URL: "rediss://queue.example.test:6380/1",
       BULLMQ_PREFIX: "insightkm:test",
       WORKER_CONCURRENCY: 7,
+      EMBEDDING_BATCH_CONCURRENCY: 3,
     });
     expect(() =>
       workerEnv({

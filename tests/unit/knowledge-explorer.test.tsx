@@ -22,6 +22,7 @@ describe("KnowledgeExplorer", () => {
             description: null,
             scope: "GLOBAL",
             botNames: [],
+            documentCount: 2,
             sources: [
               {
                 id: "source-files",

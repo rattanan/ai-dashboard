@@ -71,6 +71,7 @@ export const workerEnvSchema = z.object({
     .default(120_000),
   AI_MAX_RETRIES: z.coerce.number().int().min(0).max(5).default(2),
   EMBEDDING_BATCH_SIZE: z.coerce.number().int().min(1).max(100).default(16),
+  EMBEDDING_BATCH_CONCURRENCY: z.coerce.number().int().min(1).max(8).default(4),
   REDIS_URL: redisUrl.default("redis://127.0.0.1:6379/0"),
   BULLMQ_PREFIX: z
     .string()

@@ -102,6 +102,7 @@ export const envSchema = z.object({
     .max(300_000)
     .default(120_000),
   EMBEDDING_BATCH_SIZE: z.coerce.number().int().min(1).max(100).default(16),
+  EMBEDDING_BATCH_CONCURRENCY: z.coerce.number().int().min(1).max(8).default(4),
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
   AI_PROVIDER: z.enum(["openai-compatible"]).default("openai-compatible"),
   AI_BASE_URL: z.string().url().default("https://api.openai.com/v1"),
