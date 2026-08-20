@@ -37,6 +37,12 @@ export const workerEnvSchema = z.object({
     .min(0)
     .max(1_000)
     .default(200),
+  KNOWLEDGE_CHUNK_MAX_TOKENS: z.coerce
+    .number()
+    .int()
+    .min(64)
+    .max(8_192)
+    .default(400),
   KNOWLEDGE_SHARED_FOLDER_ROOTS: z.string().min(1).default(".data/shared"),
   KNOWLEDGE_SHARED_FOLDER_MAX_FILES: z.coerce
     .number()

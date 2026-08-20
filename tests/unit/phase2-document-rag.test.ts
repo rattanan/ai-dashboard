@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import * as XLSX from "xlsx";
 import {
   chunkParsedDocument,
+  estimateEmbeddingTokens,
   isSupportedDocument,
   parseDocument,
 } from "@/packages/knowledge/document-parser";
@@ -123,6 +124,28 @@ describe("Phase 2 document ingestion", () => {
     expect(first).toHaveLength(1);
     expect(first[0].metadata).toEqual({ page: 1 });
     expect(first[0].contentHash).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it("keeps Thai chunks below the embedding token budget", () => {
+    const chunks = chunkParsedDocument(
+      {
+        parserVersion: "insightkm-parser-v1",
+        sections: [{ text: "ข้อมูลภาษาไทย".repeat(120), metadata: { row: 1 } }],
+      },
+      {
+        maxCharacters: 1_200,
+        overlapCharacters: 40,
+        maxTokens: 400,
+      },
+    );
+
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(
+      chunks.every(
+        ({ content }) => estimateEmbeddingTokens(content) <= 400,
+      ),
+    ).toBe(true);
+    expect(chunks.every(({ tokenCount }) => tokenCount <= 400)).toBe(true);
   });
 
   it("removes binary control characters before embedding", async () => {

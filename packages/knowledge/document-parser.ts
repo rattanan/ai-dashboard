@@ -21,6 +21,19 @@ export type ParsedDocument = {
   parserVersion: typeof PARSER_VERSION;
 };
 
+export function estimateEmbeddingTokens(value: string) {
+  let asciiCharacters = 0;
+  let nonAsciiCharacters = 0;
+  for (const character of value) {
+    if (character.codePointAt(0)! <= 0x7f) asciiCharacters += 1;
+    else nonAsciiCharacters += 1;
+  }
+  return Math.max(
+    1,
+    asciiCharacters + nonAsciiCharacters * 2,
+  );
+}
+
 function normalizeText(value: string) {
   return value
     .normalize("NFKC")
@@ -115,7 +128,11 @@ export async function parseDocument(
 
 export function chunkParsedDocument(
   parsed: ParsedDocument,
-  options: { maxCharacters: number; overlapCharacters: number },
+  options: {
+    maxCharacters: number;
+    overlapCharacters: number;
+    maxTokens?: number;
+  },
 ) {
   const chunks: Array<{
     ordinal: number;
@@ -129,6 +146,24 @@ export function chunkParsedDocument(
     let cursor = 0;
     while (cursor < section.text.length) {
       let end = Math.min(cursor + options.maxCharacters, section.text.length);
+      if (
+        options.maxTokens &&
+        estimateEmbeddingTokens(section.text.slice(cursor, end)) >
+          options.maxTokens
+      ) {
+        let low = cursor + 1;
+        let high = end;
+        while (low < high) {
+          const midpoint = Math.ceil((low + high) / 2);
+          if (
+            estimateEmbeddingTokens(section.text.slice(cursor, midpoint)) <=
+            options.maxTokens
+          )
+            low = midpoint;
+          else high = midpoint - 1;
+        }
+        end = low;
+      }
       if (end < section.text.length) {
         const boundary = Math.max(
           section.text.lastIndexOf("\n", end),
@@ -136,7 +171,7 @@ export function chunkParsedDocument(
           section.text.lastIndexOf("。", end),
           section.text.lastIndexOf(" ", end),
         );
-        if (boundary > cursor + options.maxCharacters * 0.6) end = boundary + 1;
+        if (boundary > cursor + (end - cursor) * 0.6) end = boundary + 1;
       }
       const content = normalizeText(section.text.slice(cursor, end));
       const contentHash = createHash("sha256").update(content).digest("hex");
@@ -146,12 +181,16 @@ export function chunkParsedDocument(
           ordinal: chunks.length,
           content,
           contentHash,
-          tokenCount: Math.max(1, Math.ceil(content.length / 4)),
+          tokenCount: estimateEmbeddingTokens(content),
           metadata: section.metadata,
         });
       }
       if (end >= section.text.length) break;
-      cursor = Math.max(cursor + 1, end - options.overlapCharacters);
+      const overlap = Math.min(
+        options.overlapCharacters,
+        Math.floor((end - cursor) * 0.2),
+      );
+      cursor = Math.max(cursor + 1, end - overlap);
     }
   }
   return chunks;

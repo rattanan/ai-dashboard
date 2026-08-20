@@ -4,6 +4,7 @@ import path from "node:path";
 import type { Pool } from "pg";
 import type { WorkerEnvironment } from "../../schemas/worker-env.js";
 import { chunkParsedDocument, parseDocument } from "./document-parser.js";
+import { startIndexJobHeartbeat } from "./index-job-heartbeat.js";
 import {
   assertEmbeddingCount,
   embeddingAdapter,
@@ -370,14 +371,22 @@ export async function processDocumentIndexJob(
   );
   if (!claimed.rowCount)
     return { indexJobId, chunkCount: 0, skipped: true as const };
-  await pool.query(
-    `UPDATE "DocumentVersion"
-       SET status = 'PROCESSING', "errorMessage" = NULL,
-           "updatedAt" = CURRENT_TIMESTAMP
-     WHERE id = $1`,
-    [job.documentVersionId],
+  const stopHeartbeat = startIndexJobHeartbeat(
+    pool,
+    indexJobId,
+    Math.max(
+      1_000,
+      Math.min(15_000, Math.floor(environment.WORKER_HEALTH_TIMEOUT_MS / 2)),
+    ),
   );
   try {
+    await pool.query(
+      `UPDATE "DocumentVersion"
+         SET status = 'PROCESSING', "errorMessage" = NULL,
+             "updatedAt" = CURRENT_TIMESTAMP
+       WHERE id = $1`,
+      [job.documentVersionId],
+    );
     if (!/^[a-f0-9-]+$/.test(job.storageKey))
       throw new Error("Invalid object storage key");
     const bytes = await readFile(
@@ -387,6 +396,7 @@ export async function processDocumentIndexJob(
     const chunks = chunkParsedDocument(parsed, {
       maxCharacters: environment.KNOWLEDGE_CHUNK_CHARACTERS,
       overlapCharacters: environment.KNOWLEDGE_CHUNK_OVERLAP,
+      maxTokens: environment.KNOWLEDGE_CHUNK_MAX_TOKENS,
     });
     if (!chunks.length)
       throw new Error("Document produced no indexable chunks");
@@ -611,5 +621,7 @@ export async function processDocumentIndexJob(
       [job.documentId, message],
     );
     throw new Error(message);
+  } finally {
+    stopHeartbeat();
   }
 }
