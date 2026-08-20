@@ -4,6 +4,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import {
   BusinessInsightDashboard,
   BusinessInsightForm,
+  BusinessInsightStatusRefresh,
 } from "@/components/insights/business-insight-workbench";
 import { requireAuthorization } from "@/server/auth/authorization";
 import { hasPermission, requirePermission } from "@/server/auth/permissions";
@@ -127,6 +128,7 @@ export default async function BusinessInsightsPage({
   const gaps = object(snapshot?.knowledgeGaps);
   return (
     <div className="space-y-6">
+      <BusinessInsightStatusRefresh status={selected?.status ?? null} />
       <PageHeader
         title="Conversation business insights"
         description="Aggregate only conversations inside your permitted department/project scope. Every snapshot records its date range, filters, sample size, algorithm version, and evidence counts."

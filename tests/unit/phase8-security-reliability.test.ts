@@ -13,7 +13,10 @@ import {
 } from "@/server/ai/resilient-provider";
 import type { AIProvider } from "@/server/ai/types";
 import { failure, success } from "@/types/result";
-import { queueHasCapacity } from "@/server/services/job-queue";
+import {
+  queueHasActiveWorker,
+  queueHasCapacity,
+} from "@/server/services/job-queue";
 import {
   contentLengthWithinLimit,
   isTrustedMutationRequest,
@@ -225,6 +228,11 @@ describe("Phase 8 circuit breaker and queue backpressure", () => {
     expect(queueHasCapacity({ waiting: 8, delayed: 1, active: 1 }, 10)).toBe(
       false,
     );
+  });
+
+  it("requires an active worker before accepting business insight work", () => {
+    expect(queueHasActiveWorker([])).toBe(false);
+    expect(queueHasActiveWorker([{ id: "worker-1" }])).toBe(true);
   });
 });
 

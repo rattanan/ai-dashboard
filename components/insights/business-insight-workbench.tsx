@@ -110,6 +110,22 @@ export function BusinessInsightForm({
   );
 }
 
+export function BusinessInsightStatusRefresh({
+  status,
+}: {
+  status: string | null;
+}) {
+  const router = useRouter();
+
+  useEffect(() => {
+    if (status !== "PROCESSING") return;
+    const interval = window.setInterval(() => router.refresh(), 2_000);
+    return () => window.clearInterval(interval);
+  }, [router, status]);
+
+  return null;
+}
+
 type InsightDashboardProps = {
   metrics: {
     conversationCount: number;

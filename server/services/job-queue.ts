@@ -86,6 +86,8 @@ export async function enqueueBusinessInsightJob(businessInsightJobId: string) {
   });
   try {
     await assertQueueCapacity(queue, configuration.QUEUE_MAX_WAITING_JOBS);
+    const workers = await queue.getWorkers();
+    if (!queueHasActiveWorker(workers)) throw new Error("QUEUE_NO_WORKERS");
     await queue.add(
       BUSINESS_INSIGHT_JOB,
       { businessInsightJobId },
@@ -111,6 +113,10 @@ export function queueHasCapacity(
     (counts.waiting ?? 0) + (counts.delayed ?? 0) + (counts.active ?? 0) <
     maximumDepth
   );
+}
+
+export function queueHasActiveWorker(workers: readonly unknown[]) {
+  return workers.length > 0;
 }
 
 async function assertQueueCapacity(queue: Queue, maximumDepth: number) {
