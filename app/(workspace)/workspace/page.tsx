@@ -3,12 +3,11 @@ import {
   ArrowRight,
   BookOpenText,
   Bot,
-  CheckCircle2,
   CircleAlert,
   Database,
   FileText,
   Lightbulb,
-  Plus,
+  PlugZap,
   Search,
   ShieldCheck,
   Sparkles,
@@ -22,20 +21,66 @@ import { formatDate } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { AddKnowledgeWizard } from "@/components/sources/add-knowledge-wizard";
+import { configuredGoogleDriveServiceAccountEmail } from "@/packages/knowledge/google-drive-url";
+import { env } from "@/schemas/env";
 
 export const metadata = { title: "Home" };
 
 export default async function WorkspacePage() {
   const context = await requireAuthorization();
-  const [workspace, sources, insights, canCreateSource] = await Promise.all([
+  const [
+    workspace,
+    sources,
+    knowledgeSources,
+    insights,
+    canCreateSource,
+    canAddKnowledge,
+    databaseConnectionCount,
+    apiConnectionCount,
+  ] = await Promise.all([
     db.workspace.findUniqueOrThrow({
       where: { id: context.workspaceId },
       include: { organization: true },
     }),
     dataSourceRepository.list(context),
+    db.knowledgeSource.findMany({
+      where: {
+        active: true,
+        rack: { organizationId: context.organizationId, active: true },
+      },
+      select: { status: true },
+    }),
     dashboardRepository.list(context),
     hasPermission(context, "datasource.create"),
+    hasPermission(context, "knowledge.manage"),
+    db.dataSource.count({
+      where: {
+        workspaceId: context.workspaceId,
+        type: { in: ["MYSQL", "POSTGRESQL", "MSSQL", "ORACLE"] },
+      },
+    }),
+    db.legacyApi.count({
+      where: {
+        organizationId: context.organizationId,
+        workspaceId: context.workspaceId,
+      },
+    }),
   ]);
+  const [knowledgeFolders, bots] = canAddKnowledge
+    ? await Promise.all([
+        db.knowledgeRack.findMany({
+          where: { organizationId: context.organizationId, active: true },
+          select: { id: true, name: true },
+          orderBy: { name: "asc" },
+        }),
+        db.bot.findMany({
+          where: { organizationId: context.organizationId },
+          select: { id: true, name: true },
+          orderBy: { name: "asc" },
+        }),
+      ])
+    : [[], []];
   const visibleInsightIds = insights.map((insight) => insight.id);
   const [completedAnalysisCount, runningAnalysisCount] = await Promise.all([
     db.analysisJob.count({
@@ -53,11 +98,12 @@ export default async function WorkspacePage() {
       },
     }),
   ]);
-  const sourceCount = sources.length;
-  const connectedSourceCount = sources.filter(
-    (source) => source.status === "CONNECTED",
+  const sourceCount = knowledgeSources.length;
+  const readySourceCount = knowledgeSources.filter(
+    (source) => source.status === "READY",
   ).length;
   const insightCount = insights.length;
+  const connectionCount = databaseConnectionCount + apiConnectionCount;
   const recentSources = sources.slice(0, 3);
 
   return (
@@ -83,12 +129,15 @@ export default async function WorkspacePage() {
                 <Lightbulb size={17} /> View insights
               </Link>
             </Button>
-            {canCreateSource ? (
-              <Button asChild>
-                <Link href="/workspace/data-sources/new">
-                  <Plus size={17} /> Add knowledge source
-                </Link>
-              </Button>
+            {canAddKnowledge ? (
+              <AddKnowledgeWizard
+                key={knowledgeSources.length}
+                folders={knowledgeFolders}
+                bots={bots}
+                googleDriveServiceAccountEmail={configuredGoogleDriveServiceAccountEmail(
+                  env().GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON,
+                )}
+              />
             ) : null}
           </div>
         </div>
@@ -108,18 +157,14 @@ export default async function WorkspacePage() {
             icon={<BookOpenText />}
             label="Knowledge sources"
             value={sourceCount}
-            detail={`${connectedSourceCount} connected`}
+            detail={`${readySourceCount} ready`}
             tone="indigo"
           />
           <Metric
-            icon={<CheckCircle2 />}
-            label="Trusted connections"
-            value={connectedSourceCount}
-            detail={
-              sourceCount
-                ? `${Math.round((connectedSourceCount / sourceCount) * 100)}% ready`
-                : "Connect your first source"
-            }
+            icon={<PlugZap />}
+            label="Connections"
+            value={connectionCount}
+            detail={`${databaseConnectionCount} Database · ${apiConnectionCount} API`}
             tone="emerald"
           />
           <Metric
