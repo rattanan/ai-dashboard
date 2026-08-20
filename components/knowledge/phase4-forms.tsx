@@ -26,6 +26,14 @@ function ActionMessage({ state }: { state: ActionState }) {
     typeof state.data.scheduleWarning === "string"
       ? state.data.scheduleWarning
       : null;
+  const refreshWarning =
+    state?.ok &&
+    typeof state.data === "object" &&
+    state.data !== null &&
+    "refreshWarning" in state.data &&
+    typeof state.data.refreshWarning === "string"
+      ? state.data.refreshWarning
+      : null;
   return (
     <p
       aria-live="polite"
@@ -34,7 +42,8 @@ function ActionMessage({ state }: { state: ActionState }) {
       }
     >
       {state.ok
-        ? (warning ?? "Source created. You can start its first refresh below.")
+        ? [warning, refreshWarning].filter(Boolean).join(" ") ||
+          "Source created and its first refresh was queued."
         : state.error.message}
     </p>
   );

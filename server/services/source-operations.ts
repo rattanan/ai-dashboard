@@ -117,6 +117,7 @@ export async function createSharedFolderSource(
       "A knowledge source with this name already exists in the rack.",
     );
   }
+  let scheduleWarning: string | undefined;
   if (input.scheduleEnabled) {
     try {
       await configureSourceRefreshSchedule({
@@ -144,14 +145,18 @@ export async function createSharedFolderSource(
           },
         }),
       ]);
-      return success({
-        id: source.id,
-        scheduleWarning:
-          "The source was created, but automatic refresh was disabled because the queue is unavailable.",
-      });
+      scheduleWarning =
+        "Automatic refresh was disabled because the schedule queue is unavailable.";
     }
   }
-  return success({ id: source.id });
+  const initialRefresh = await startSourceRefresh(context, source.id);
+  return success({
+    id: source.id,
+    scheduleWarning,
+    refreshWarning: initialRefresh.ok
+      ? undefined
+      : "The source was created, but its first refresh could not be queued. Use Refresh source to retry.",
+  });
 }
 
 export async function createWebSource(
