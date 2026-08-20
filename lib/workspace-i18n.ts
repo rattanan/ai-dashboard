@@ -14,6 +14,8 @@ const thaiTranslations: Record<string, string> = {
   Conversations: "บทสนทนา",
   "Saved Answers": "คำตอบที่บันทึกไว้",
   "All Sources": "แหล่งข้อมูลทั้งหมด",
+  "All knowledge": "ความรู้ทั้งหมด",
+  "Manage Source": "จัดการแหล่งข้อมูล",
   "Source Catalog": "รายการแหล่งข้อมูล",
   "Knowledge Folders": "โฟลเดอร์ความรู้",
   "Knowledge Access": "สิทธิ์การเข้าถึงความรู้",
