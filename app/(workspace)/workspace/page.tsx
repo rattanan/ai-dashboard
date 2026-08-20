@@ -38,6 +38,9 @@ export default async function WorkspacePage() {
     canAddKnowledge,
     databaseConnectionCount,
     apiConnectionCount,
+    canAuditConversations,
+    manageAllConversations,
+    membership,
   ] = await Promise.all([
     db.workspace.findUniqueOrThrow({
       where: { id: context.workspaceId },
@@ -66,6 +69,17 @@ export default async function WorkspacePage() {
         workspaceId: context.workspaceId,
       },
     }),
+    hasPermission(context, "chat.audit"),
+    hasPermission(context, "role.manage"),
+    db.organizationMember.findUnique({
+      where: {
+        organizationId_userId: {
+          organizationId: context.organizationId,
+          userId: context.userId,
+        },
+      },
+      include: { projects: true },
+    }),
   ]);
   const [knowledgeFolders, bots] = canAddKnowledge
     ? await Promise.all([
@@ -82,27 +96,46 @@ export default async function WorkspacePage() {
       ])
     : [[], []];
   const visibleInsightIds = insights.map((insight) => insight.id);
-  const [completedAnalysisCount, runningAnalysisCount] = await Promise.all([
-    db.analysisJob.count({
-      where: {
-        workspaceId: context.workspaceId,
-        dashboardId: { in: visibleInsightIds },
-        status: "COMPLETED",
-      },
-    }),
-    db.analysisJob.count({
-      where: {
-        workspaceId: context.workspaceId,
-        dashboardId: { in: visibleInsightIds },
-        status: { in: ["QUEUED", "RUNNING", "WAITING_FOR_APPROVAL"] },
-      },
-    }),
-  ]);
+  const projectIds = membership?.projects.map((item) => item.projectId) ?? [];
+  const conversationWhere = {
+    organizationId: context.organizationId,
+    deletedAt: null,
+    ...(!canAuditConversations
+      ? { userId: context.userId }
+      : !manageAllConversations
+        ? {
+            OR: [
+              ...(membership?.organizationUnitId
+                ? [{ organizationUnitId: membership.organizationUnitId }]
+                : []),
+              ...(projectIds.length ? [{ projectId: { in: projectIds } }] : []),
+              { userId: context.userId },
+            ],
+          }
+        : {}),
+  };
+  const [conversationCount, completedAnalysisCount, runningAnalysisCount] =
+    await Promise.all([
+      db.conversation.count({ where: conversationWhere }),
+      db.analysisJob.count({
+        where: {
+          workspaceId: context.workspaceId,
+          dashboardId: { in: visibleInsightIds },
+          status: "COMPLETED",
+        },
+      }),
+      db.analysisJob.count({
+        where: {
+          workspaceId: context.workspaceId,
+          dashboardId: { in: visibleInsightIds },
+          status: { in: ["QUEUED", "RUNNING", "WAITING_FOR_APPROVAL"] },
+        },
+      }),
+    ]);
   const sourceCount = knowledgeSources.length;
   const readySourceCount = knowledgeSources.filter(
     (source) => source.status === "READY",
   ).length;
-  const insightCount = insights.length;
   const connectionCount = databaseConnectionCount + apiConnectionCount;
   const recentSources = sources.slice(0, 3);
 
@@ -170,7 +203,7 @@ export default async function WorkspacePage() {
           <Metric
             icon={<Lightbulb />}
             label="Business insights"
-            value={insightCount}
+            value={conversationCount}
             detail={`${completedAnalysisCount} analyses completed`}
             tone="amber"
           />
