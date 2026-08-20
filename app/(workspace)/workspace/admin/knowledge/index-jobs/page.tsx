@@ -4,6 +4,7 @@ import type {
 } from "@/generated/prisma/client";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/ui/page-header";
+import { SourceRefreshPoller } from "@/components/sources/source-refresh-poller";
 import {
   cancelIndexJobAction,
   retryIndexJobAction,
@@ -111,9 +112,12 @@ export default async function IndexJobsPage({
     : 0;
   const count = (status: IndexJobStatus) =>
     databaseCounts.find((item) => item.status === status)?._count._all ?? 0;
+  const hasActiveJobs =
+    count("QUEUED") + count("PROCESSING") + count("CANCEL_REQUESTED") > 0;
 
   return (
     <div className="space-y-6">
+      <SourceRefreshPoller active={hasActiveJobs} />
       <PageHeader
         title="Index operations"
         description="Monitor queue depth, indexing progress, categorized failures, retries, cancellation, and dead-letter jobs."
