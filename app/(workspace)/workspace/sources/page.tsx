@@ -13,6 +13,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { SourceAssignmentForm } from "@/components/sources/source-forms";
 import { AddKnowledgeWizard } from "@/components/sources/add-knowledge-wizard";
 import { KnowledgeSourceActions } from "@/components/sources/knowledge-source-actions";
+import { SourceRefreshPoller } from "@/components/sources/source-refresh-poller";
 import { requireAuthorization } from "@/server/auth/authorization";
 import { hasPermission } from "@/server/auth/permissions";
 import { db } from "@/server/db";
@@ -39,6 +40,7 @@ type UnifiedSource = {
   creator: string;
   href: string;
   previewSummary: string | null;
+  refreshActive: boolean;
 };
 
 function tone(status: string) {
@@ -102,6 +104,11 @@ export default async function SourcesPage({
                   select: { _count: { select: { chunks: true } } },
                 },
               },
+            },
+            refreshRuns: {
+              where: { status: { in: ["QUEUED", "PROCESSING"] } },
+              select: { id: true },
+              take: 1,
             },
           },
           orderBy: { updatedAt: "desc" },
@@ -186,6 +193,7 @@ export default async function SourcesPage({
           ? `/workspace/sources/copied-text/${source.id}/edit`
           : `/workspace/admin/knowledge/sources/${source.id}`,
       previewSummary: source.previewSummary,
+      refreshActive: source.refreshRuns.length > 0,
     })),
     ...databases.map((source) => ({
       id: source.id,
@@ -205,6 +213,7 @@ export default async function SourcesPage({
       creator: source.createdBy.name ?? source.createdBy.email,
       href: `/workspace/data-sources/${source.id}`,
       previewSummary: source.previewSummary,
+      refreshActive: false,
     })),
     ...apiTools.map((source) => ({
       id: source.id,
@@ -224,6 +233,7 @@ export default async function SourcesPage({
       creator: source.createdBy.name ?? source.createdBy.email,
       href: `/workspace/sources/api-tools/${source.id}/edit`,
       previewSummary: source.previewSummary,
+      refreshActive: false,
     })),
   ];
   const search = query.q?.trim().toLocaleLowerCase() ?? "";
@@ -255,6 +265,9 @@ export default async function SourcesPage({
   const visible = filtered.slice((page - 1) * pageSize, page * pageSize);
   return (
     <div className="space-y-6">
+      <SourceRefreshPoller
+        active={sources.some((source) => source.refreshActive)}
+      />
       <PageHeader
         title="Manage Source"
         description="Find and govern files, copied text, URLs, shared folders, live databases, and API tools in one place."

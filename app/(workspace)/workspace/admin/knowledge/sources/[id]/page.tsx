@@ -14,6 +14,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { DeleteKnowledgeDialog } from "@/components/knowledge/delete-knowledge-dialog";
 import { SourceFileUploadForm } from "@/components/sources/source-file-upload-form";
 import { SourceReindexForm } from "@/components/sources/source-reindex-form";
+import { SourceRefreshPoller } from "@/components/sources/source-refresh-poller";
 import { refreshSourceAction } from "@/features/knowledge/source-actions";
 import { requireAuthorization } from "@/server/auth/authorization";
 import { requirePermission } from "@/server/auth/permissions";
@@ -148,6 +149,11 @@ export default async function KnowledgeSourceDetailPage({
 
   return (
     <div className="min-w-0 space-y-6 overflow-x-hidden">
+      <SourceRefreshPoller
+        active={source.refreshRuns.some((run) =>
+          ["QUEUED", "PROCESSING"].includes(run.status),
+        )}
+      />
       <nav
         aria-label="Breadcrumb"
         className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground"

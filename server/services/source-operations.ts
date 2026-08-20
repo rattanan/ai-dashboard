@@ -117,6 +117,10 @@ export async function createSharedFolderSource(
       "A knowledge source with this name already exists in the rack.",
     );
   }
+  // Queue the first refresh before installing the recurring scheduler. BullMQ
+  // may produce a scheduler job immediately; installing it first can therefore
+  // make startSourceRefresh see an active run and skip the intended first sync.
+  const initialRefresh = await startSourceRefresh(context, source.id);
   let scheduleWarning: string | undefined;
   if (input.scheduleEnabled) {
     try {
@@ -149,7 +153,6 @@ export async function createSharedFolderSource(
         "Automatic refresh was disabled because the schedule queue is unavailable.";
     }
   }
-  const initialRefresh = await startSourceRefresh(context, source.id);
   return success({
     id: source.id,
     scheduleWarning,
