@@ -4,6 +4,11 @@ import { messageFeedbackSchema } from "@/schemas/knowledge";
 import { containsProhibitedMemory } from "@/server/services/user-memory-service";
 import { shouldSummarizeConversation } from "@/server/services/conversation-memory-service";
 import { aggregateBusinessInsight } from "@/server/services/business-insight-service";
+import { buildDailyTrends } from "@/packages/insights/process-business-insight";
+import {
+  extractInsightTopics,
+  insightWords,
+} from "@/packages/insights/topic-analysis";
 
 function conversation(
   id: string,
@@ -86,6 +91,102 @@ describe("Phase 7 conversation summary threshold", () => {
 });
 
 describe("Phase 7 business-insight golden aggregation", () => {
+  it("segments Thai words without broken vowels or tone marks", () => {
+    expect(insightWords("ช่วยค้นหาใบสั่งงานของสินทรัพย์")).toEqual([
+      "ใบสั่ง",
+      "งาน",
+      "สินทรัพย์",
+    ]);
+  });
+
+  it("removes generic commands and field labels from Thai/English topics", () => {
+    expect(
+      insightWords("ช่วยหา asset description เกี่ยวกับ filter ได้ไหม"),
+    ).toEqual(["asset"]);
+  });
+
+  it("prefers repeated topic phrases over less meaningful component words", () => {
+    const topics = extractInsightTopics([
+      { id: "1", content: "Filter asset description by work order" },
+      { id: "2", content: "Filter asset description by work order" },
+      { id: "3", content: "Filter asset status by work order" },
+      { id: "4", content: "Filter asset status by work order" },
+    ]);
+
+    expect(topics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ topic: "work order", count: 4 }),
+        expect.objectContaining({ topic: "asset", count: 4 }),
+        expect.objectContaining({ topic: "asset status", count: 2 }),
+      ]),
+    );
+    expect(topics.map(({ topic }) => topic)).not.toContain("filter");
+    expect(topics.map(({ topic }) => topic)).not.toContain("work");
+  });
+
+  it("joins adjacent Thai topic words into a readable phrase", () => {
+    const topics = extractInsightTopics([
+      { id: "1", content: "ค้นหาใบสั่งงานที่ยังไม่อนุมัติ" },
+      { id: "2", content: "แสดงใบสั่งงานที่รออนุมัติ" },
+    ]);
+
+    expect(topics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ topic: "ใบสั่งงาน", count: 2 }),
+      ]),
+    );
+  });
+
+  it("keeps Thai sara am composed for meaningful compound topics", () => {
+    const topics = extractInsightTopics([
+      { id: "1", content: "จำนวนคำเสนอที่ถือเป็นข้อสนอง" },
+      { id: "2", content: "คำเสนอและข้อสนองมีผลเมื่อใด" },
+    ]);
+
+    expect(topics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ topic: "คำเสนอ", count: 2 }),
+        expect.objectContaining({ topic: "ข้อสนอง", count: 2 }),
+      ]),
+    );
+    expect(topics.map(({ topic }) => topic)).not.toContain("นวน");
+  });
+
+  it("builds chronological daily chart data in the queue worker", () => {
+    expect(
+      buildDailyTrends([
+        {
+          createdAt: new Date("2026-08-20T03:00:00.000Z"),
+          errorCode: null,
+          latencyMs: 100,
+        },
+        {
+          createdAt: new Date("2026-08-19T03:00:00.000Z"),
+          errorCode: "NO_GROUNDED_CONTEXT",
+          latencyMs: 300,
+        },
+        {
+          createdAt: new Date("2026-08-20T04:00:00.000Z"),
+          errorCode: "AI_PROVIDER_ERROR",
+          latencyMs: 200,
+        },
+      ]),
+    ).toEqual([
+      {
+        date: "2026-08-19",
+        messages: 1,
+        errors: 1,
+        averageLatencyMs: 300,
+      },
+      {
+        date: "2026-08-20",
+        messages: 2,
+        errors: 1,
+        averageLatencyMs: 150,
+      },
+    ]);
+  });
+
   it("classifies topics, repeated problems, gaps, errors, latency, and evidence", () => {
     const result = aggregateBusinessInsight([
       conversation("1", "How do I reset payroll access?"),
@@ -105,7 +206,9 @@ describe("Phase 7 business-insight golden aggregation", () => {
       errorCount: 1,
       negativeFeedbackCount: 2,
     });
-    expect(result.topics.some(({ topic }) => topic === "payroll")).toBe(true);
+    expect(result.topics.some(({ topic }) => topic.includes("payroll"))).toBe(
+      true,
+    );
     expect(result.repeatedProblems[0]).toMatchObject({ count: 2 });
     expect(result.knowledgeGaps.count).toBe(1);
     expect(result.findings.map(({ type }) => type)).toEqual(

@@ -6,6 +6,10 @@ import type { z } from "zod";
 import type { businessInsightFilterSchema } from "@/schemas/business-insight";
 import { failure, success } from "@/types/result";
 import { enqueueBusinessInsightJob } from "@/server/services/job-queue";
+import {
+  extractInsightTopics,
+  insightWords,
+} from "@/packages/insights/topic-analysis";
 
 type InsightFilters = z.infer<typeof businessInsightFilterSchema>;
 
@@ -27,70 +31,8 @@ type AggregateConversation = {
   messages: AggregateMessage[];
 };
 
-const stopWords = new Set([
-  "a",
-  "an",
-  "and",
-  "are",
-  "as",
-  "at",
-  "be",
-  "by",
-  "for",
-  "from",
-  "how",
-  "i",
-  "in",
-  "is",
-  "it",
-  "of",
-  "on",
-  "or",
-  "that",
-  "the",
-  "this",
-  "to",
-  "what",
-  "when",
-  "where",
-  "which",
-  "who",
-  "why",
-  "with",
-  "you",
-  "your",
-  "ขอ",
-  "ของ",
-  "ข้อมูล",
-  "จาก",
-  "จะ",
-  "ช่วย",
-  "ที่",
-  "ใน",
-  "มี",
-  "และ",
-  "ได้",
-]);
-
-function words(value: string) {
-  const normalized = value.normalize("NFKC").toLocaleLowerCase();
-  const segmented =
-    typeof Intl.Segmenter === "function"
-      ? [
-          ...new Intl.Segmenter(["th", "en"], { granularity: "word" }).segment(
-            normalized,
-          ),
-        ]
-          .filter((item) => item.isWordLike)
-          .map((item) => item.segment)
-      : (normalized.match(/[\p{L}\p{N}]+/gu) ?? []);
-  return segmented.filter(
-    (word) => word.length >= 2 && !stopWords.has(word) && !/^\d+$/.test(word),
-  );
-}
-
 function normalizedQuestion(value: string) {
-  return words(value).slice(0, 18).join(" ");
+  return insightWords(value).slice(0, 18).join(" ");
 }
 
 function citationLabel(metadata: unknown) {
@@ -118,24 +60,7 @@ export function aggregateBusinessInsight(
   );
   const userMessages = messages.filter(({ role }) => role === "USER");
   const assistantMessages = messages.filter(({ role }) => role === "ASSISTANT");
-  const topicCounts = new Map<
-    string,
-    { count: number; messageIds: string[] }
-  >();
-  for (const message of userMessages)
-    for (const topic of new Set(words(message.content).slice(0, 12))) {
-      const current = topicCounts.get(topic) ?? { count: 0, messageIds: [] };
-      current.count += 1;
-      current.messageIds.push(message.id);
-      topicCounts.set(topic, current);
-    }
-  const topics = [...topicCounts.entries()]
-    .map(([topic, detail]) => ({ topic, ...detail }))
-    .sort(
-      (left, right) =>
-        right.count - left.count || left.topic.localeCompare(right.topic),
-    )
-    .slice(0, 12);
+  const topics = extractInsightTopics(userMessages);
 
   const questionGroups = new Map<
     string,
@@ -738,7 +663,7 @@ export async function createBusinessInsight(
         data: {
           jobId: job.id,
           version: 1,
-          algorithmVersion: "business-insight-deterministic-v1",
+          algorithmVersion: "business-insight-deterministic-v2",
           filters: filtersSnapshot,
           metrics: aggregate.metrics as Prisma.InputJsonValue,
           trends: aggregate.trends as Prisma.InputJsonValue,

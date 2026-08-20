@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Pool } from "pg";
+import { extractInsightTopics } from "./topic-analysis";
 
 type JobRow = {
   id: string;
@@ -24,25 +25,52 @@ type MessageRow = {
   conversationId: string;
   role: "USER" | "ASSISTANT" | "SYSTEM";
   content: string;
+  createdAt: Date;
   latencyMs: number | null;
   errorCode: string | null;
   rating: number | null;
 };
 
-function maskPii(value: string) {
-  return value
-    .replace(/[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/g, "[MASKED_EMAIL]")
-    .replace(/\+?[\d()\s-]{8,20}/g, "[MASKED_PHONE]")
-    .replace(/\b\d{13,19}\b/g, "[MASKED_ACCOUNT]");
-}
+export function buildDailyTrends(
+  messages: Pick<MessageRow, "createdAt" | "errorCode" | "latencyMs">[],
+) {
+  const days = new Map<
+    string,
+    {
+      messages: number;
+      errors: number;
+      latencyTotal: number;
+      latencyCount: number;
+    }
+  >();
 
-function terms(value: string) {
-  return (
-    maskPii(value)
-      .normalize("NFKC")
-      .toLocaleLowerCase()
-      .match(/[\p{L}\p{N}]+/gu) ?? []
-  ).filter((term) => term.length > 1 && !/^\d+$/.test(term));
+  for (const message of messages) {
+    const date = message.createdAt.toISOString().slice(0, 10);
+    const values = days.get(date) ?? {
+      messages: 0,
+      errors: 0,
+      latencyTotal: 0,
+      latencyCount: 0,
+    };
+    values.messages += 1;
+    if (message.errorCode) values.errors += 1;
+    if (message.latencyMs != null) {
+      values.latencyTotal += message.latencyMs;
+      values.latencyCount += 1;
+    }
+    days.set(date, values);
+  }
+
+  return [...days.entries()]
+    .map(([date, values]) => ({
+      date,
+      messages: values.messages,
+      errors: values.errors,
+      averageLatencyMs: values.latencyCount
+        ? Math.round(values.latencyTotal / values.latencyCount)
+        : 0,
+    }))
+    .sort((left, right) => left.date.localeCompare(right.date));
 }
 
 export async function processBusinessInsightQueueJob(
@@ -94,7 +122,7 @@ export async function processBusinessInsightQueueJob(
   const conversationIds = conversations.rows.map(({ id }) => id);
   const messages = conversationIds.length
     ? await pool.query<MessageRow>(
-        `SELECT m.id, m."conversationId", m.role::text, m.content, m."latencyMs",
+        `SELECT m.id, m."conversationId", m.role::text, m.content, m."createdAt", m."latencyMs",
                 m."errorCode", f.rating
            FROM "ChatMessage" m
            LEFT JOIN "ChatMessageFeedback" f ON f."messageId" = m.id
@@ -108,18 +136,7 @@ export async function processBusinessInsightQueueJob(
   const assistantMessages = messages.rows.filter(
     ({ role }) => role === "ASSISTANT",
   );
-  const topicMap = new Map<string, { count: number; messageIds: string[] }>();
-  for (const message of userMessages)
-    for (const term of new Set(terms(message.content).slice(0, 12))) {
-      const item = topicMap.get(term) ?? { count: 0, messageIds: [] };
-      item.count += 1;
-      item.messageIds.push(message.id);
-      topicMap.set(term, item);
-    }
-  const topics = [...topicMap.entries()]
-    .map(([topic, value]) => ({ topic, ...value }))
-    .sort((left, right) => right.count - left.count)
-    .slice(0, 12);
+  const topics = extractInsightTopics(userMessages);
   const unanswered = assistantMessages.filter(({ errorCode }) => errorCode);
   const gaps = assistantMessages.filter(
     ({ errorCode }) => errorCode === "NO_GROUNDED_CONTEXT",
@@ -152,6 +169,7 @@ export async function processBusinessInsightQueueJob(
     p95LatencyMs:
       latencies[Math.max(0, Math.ceil(latencies.length * 0.95) - 1)] ?? 0,
   };
+  const trends = buildDailyTrends(messages.rows);
   const enoughEvidence =
     conversationIds.length >= 3 && messages.rows.length >= 6;
   const findings = enoughEvidence
@@ -207,9 +225,9 @@ export async function processBusinessInsightQueueJob(
         (id, "jobId", version, "algorithmVersion", filters, metrics, trends,
          topics, "knowledgeGaps", findings, "evidenceAggregate", limitations,
          "conversationCount", "messageCount", "createdAt")
-       VALUES ($1, $2, 1, 'business-insight-worker-v1', $3::jsonb, $4::jsonb,
-               '[]'::jsonb, $5::jsonb, $6::jsonb, $7::jsonb, $8::jsonb,
-               $9::text[], $10, $11, CURRENT_TIMESTAMP)
+       VALUES ($1, $2, 1, 'business-insight-worker-v3', $3::jsonb, $4::jsonb,
+               $5::jsonb, $6::jsonb, $7::jsonb, $8::jsonb, $9::jsonb,
+               $10::text[], $11, $12, CURRENT_TIMESTAMP)
        ON CONFLICT ("jobId", version) DO NOTHING`,
       [
         randomUUID(),
@@ -224,6 +242,7 @@ export async function processBusinessInsightQueueJob(
           scope: job.scopeMetadata,
         }),
         JSON.stringify(metrics),
+        JSON.stringify(trends),
         JSON.stringify(topics),
         JSON.stringify({
           count: gaps.length,

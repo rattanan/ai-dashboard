@@ -196,43 +196,53 @@ export function BusinessInsightDashboard({
       </div>
       <section className="rounded-xl border bg-card p-5">
         <h3 className="font-semibold">Message, error, and latency trend</h3>
-        <div
-          className="mt-4 h-80"
-          role="img"
-          aria-label="Daily messages, errors, and average latency trend"
-        >
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={trends}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="date" tick={{ fontSize: 11 }} />
-              <YAxis yAxisId="count" />
-              <YAxis yAxisId="latency" orientation="right" />
-              <Tooltip />
-              <Legend />
-              <Line
-                yAxisId="count"
-                type="monotone"
-                dataKey="messages"
-                stroke="#4f46e5"
-                strokeWidth={2}
-              />
-              <Line
-                yAxisId="count"
-                type="monotone"
-                dataKey="errors"
-                stroke="#dc2626"
-                strokeWidth={2}
-              />
-              <Line
-                yAxisId="latency"
-                type="monotone"
-                dataKey="averageLatencyMs"
-                stroke="#059669"
-                strokeWidth={2}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
+        {trends.length ? (
+          <div
+            className="mt-4 h-80"
+            role="img"
+            aria-label="Daily messages, errors, and average latency trend"
+          >
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={trends}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="date" tick={{ fontSize: 11 }} />
+                <YAxis yAxisId="count" allowDecimals={false} />
+                <YAxis yAxisId="latency" orientation="right" unit=" ms" />
+                <Tooltip />
+                <Legend />
+                <Line
+                  yAxisId="count"
+                  type="monotone"
+                  dataKey="messages"
+                  stroke="#4f46e5"
+                  strokeWidth={2}
+                  dot
+                />
+                <Line
+                  yAxisId="count"
+                  type="monotone"
+                  dataKey="errors"
+                  stroke="#dc2626"
+                  strokeWidth={2}
+                  dot
+                />
+                <Line
+                  yAxisId="latency"
+                  type="monotone"
+                  dataKey="averageLatencyMs"
+                  stroke="#059669"
+                  strokeWidth={2}
+                  dot
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        ) : (
+          <div className="mt-4 grid min-h-48 place-items-center rounded-lg border border-dashed px-6 text-center text-sm text-muted-foreground">
+            This snapshot has no daily trend data. Create a new snapshot to
+            generate the chart.
+          </div>
+        )}
       </section>
       <div className="grid gap-6 lg:grid-cols-2">
         <section className="rounded-xl border bg-card p-5">
