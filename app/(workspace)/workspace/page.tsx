@@ -114,15 +114,14 @@ export default async function WorkspacePage() {
           }
         : {}),
   };
-  const [conversationCount, completedAnalysisCount, runningAnalysisCount] =
+  const [conversationCount, tokenUsage, runningAnalysisCount] =
     await Promise.all([
       db.conversation.count({ where: conversationWhere }),
-      db.analysisJob.count({
+      db.chatMessage.aggregate({
         where: {
-          workspaceId: context.workspaceId,
-          dashboardId: { in: visibleInsightIds },
-          status: "COMPLETED",
+          conversation: conversationWhere,
         },
+        _sum: { inputTokens: true, outputTokens: true },
       }),
       db.analysisJob.count({
         where: {
@@ -132,6 +131,8 @@ export default async function WorkspacePage() {
         },
       }),
     ]);
+  const tokenUsageCount =
+    (tokenUsage._sum.inputTokens ?? 0) + (tokenUsage._sum.outputTokens ?? 0);
   const sourceCount = knowledgeSources.length;
   const readySourceCount = knowledgeSources.filter(
     (source) => source.status === "READY",
@@ -202,9 +203,9 @@ export default async function WorkspacePage() {
           />
           <Metric
             icon={<Lightbulb />}
-            label="Business insights"
+            label="Conversations"
             value={conversationCount}
-            detail={`${completedAnalysisCount} analyses completed`}
+            detail={`Token usage: ${tokenUsageCount.toLocaleString()}`}
             tone="amber"
           />
           <Metric
