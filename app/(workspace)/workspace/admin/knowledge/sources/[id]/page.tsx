@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { DeleteKnowledgeDialog } from "@/components/knowledge/delete-knowledge-dialog";
+import { SourceFileUploadForm } from "@/components/sources/source-file-upload-form";
 import {
   refreshSourceAction,
   reindexSourceAction,
@@ -358,6 +359,9 @@ export default async function KnowledgeSourceDetailPage({
               <CardTitle>Actions</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
+              {source.type === "FILE" ? (
+                <SourceFileUploadForm sourceId={source.id} />
+              ) : null}
               {canRefresh ? (
                 <form action={refreshSourceAction}>
                   <input type="hidden" name="id" value={source.id} />

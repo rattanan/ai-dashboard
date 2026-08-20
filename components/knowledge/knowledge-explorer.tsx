@@ -14,7 +14,6 @@ import {
   Type,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { DocumentUploadForm } from "@/components/knowledge/phase2-forms";
 import { DeleteKnowledgeDialog } from "@/components/knowledge/delete-knowledge-dialog";
 import { cn } from "@/lib/utils";
 
@@ -30,7 +29,26 @@ type ExplorerSource = {
   chunkCount: number;
   updatedAt: string;
   botNames: string[];
+  documents: ExplorerDocument[];
 };
+
+type ExplorerDocument = {
+  id: string;
+  name: string;
+  mimeType: string;
+  status: string;
+  chunkCount: number;
+  updatedAt: string;
+};
+
+type ExplorerItem =
+  | {
+      kind: "DOCUMENT";
+      key: string;
+      source: ExplorerSource;
+      document: ExplorerDocument;
+    }
+  | { kind: "SOURCE"; key: string; source: ExplorerSource };
 
 type ExplorerFolder = {
   id: string;
@@ -50,17 +68,45 @@ function SourceIcon({ type }: { type: string }) {
   return <FileText size={18} className="text-indigo-600" />;
 }
 
+function documentType(document: ExplorerDocument) {
+  const extension = document.name.split(".").pop();
+  if (extension && extension !== document.name)
+    return extension.toLocaleUpperCase();
+  return document.mimeType.split("/").pop()?.toLocaleUpperCase() ?? "FILE";
+}
+
 export function KnowledgeExplorer({ folders }: { folders: ExplorerFolder[] }) {
   const [folderId, setFolderId] = useState(folders[0]?.id ?? "");
   const [search, setSearch] = useState("");
   const folder = folders.find((item) => item.id === folderId) ?? folders[0];
-  const sources = useMemo(
+  const items = useMemo(
     () =>
-      (folder?.sources ?? []).filter((source) =>
-        `${source.name} ${source.type}`
-          .toLocaleLowerCase()
-          .includes(search.toLocaleLowerCase()),
-      ),
+      (folder?.sources ?? [])
+        .flatMap<ExplorerItem>((source) =>
+          source.type === "FILE" && source.documents.length
+            ? source.documents.map((document) => ({
+                kind: "DOCUMENT" as const,
+                key: `document-${document.id}`,
+                source,
+                document,
+              }))
+            : [
+                {
+                  kind: "SOURCE" as const,
+                  key: `source-${source.id}`,
+                  source,
+                },
+              ],
+        )
+        .filter((item) => {
+          const searchable =
+            item.kind === "DOCUMENT"
+              ? `${item.document.name} ${item.document.mimeType} ${item.document.status}`
+              : `${item.source.name} ${item.source.type} ${item.source.status}`;
+          return searchable
+            .toLocaleLowerCase()
+            .includes(search.toLocaleLowerCase());
+        }),
     [folder, search],
   );
   if (!folders.length)
@@ -139,7 +185,14 @@ export function KnowledgeExplorer({ folders }: { folders: ExplorerFolder[] }) {
                 )}
                 <span className="min-w-0 flex-1 truncate">{item.name}</span>
                 <span className="text-xs text-muted-foreground">
-                  {item.sources.length}
+                  {item.sources.reduce(
+                    (count, source) =>
+                      count +
+                      (source.type === "FILE" && source.documents.length
+                        ? source.documents.length
+                        : 1),
+                    0,
+                  )}
                 </span>
               </button>
             ))}
@@ -169,35 +222,51 @@ export function KnowledgeExplorer({ folders }: { folders: ExplorerFolder[] }) {
             <span className="sr-only">Open</span>
           </div>
           <div className="divide-y">
-            {sources.map((item) => (
+            {items.map((item) => (
               <Link
-                key={item.id}
-                href={`/workspace/admin/knowledge/sources/${item.id}`}
-                aria-label={`View details for ${item.name}`}
+                key={item.key}
+                href={`/workspace/admin/knowledge/sources/${item.source.id}`}
+                aria-label={
+                  item.kind === "DOCUMENT"
+                    ? `View source details for ${item.document.name}`
+                    : `View details for ${item.source.name}`
+                }
                 className="group grid min-h-16 w-full grid-cols-[minmax(0,1fr)_32px] items-center px-4 text-left text-sm transition-colors hover:bg-indigo-50/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 motion-reduce:transition-none sm:grid-cols-[minmax(180px,1fr)_120px_100px_32px]"
               >
                 <span className="flex min-w-0 items-center gap-3">
                   <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-slate-100">
-                    <SourceIcon type={item.type} />
+                    <SourceIcon
+                      type={
+                        item.kind === "DOCUMENT" ? "FILE" : item.source.type
+                      }
+                    />
                   </span>
                   <span className="min-w-0">
                     <span className="block truncate font-medium">
-                      {item.name}
+                      {item.kind === "DOCUMENT"
+                        ? item.document.name
+                        : item.source.name}
                     </span>
                     <span className="block truncate text-xs text-muted-foreground">
-                      {item.type.replaceAll("_", " ")} · {item.status}
+                      {item.kind === "DOCUMENT"
+                        ? `${documentType(item.document)} · ${item.document.status}`
+                        : `${item.source.type.replaceAll("_", " ")} · ${item.source.status}`}
                     </span>
                   </span>
                 </span>
                 <span className="hidden sm:block">
-                  <Badge tone={item.scope === "GLOBAL" ? "success" : "info"}>
-                    {item.scope === "GLOBAL"
+                  <Badge
+                    tone={item.source.scope === "GLOBAL" ? "success" : "info"}
+                  >
+                    {item.source.scope === "GLOBAL"
                       ? "Shared"
-                      : `${item.botNames.length} bots`}
+                      : `${item.source.botNames.length} bots`}
                   </Badge>
                 </span>
                 <span className="hidden text-right text-muted-foreground sm:block">
-                  {item.documentCount} files
+                  {item.kind === "DOCUMENT"
+                    ? `${item.document.chunkCount} chunks`
+                    : `${item.source.documentCount} files`}
                 </span>
                 <ChevronRight
                   size={18}
@@ -206,17 +275,12 @@ export function KnowledgeExplorer({ folders }: { folders: ExplorerFolder[] }) {
                 />
               </Link>
             ))}
-            {!sources.length ? (
+            {!items.length ? (
               <p className="p-8 text-center text-sm text-muted-foreground">
                 No sources found in this folder.
               </p>
             ) : null}
           </div>
-          {folder ? (
-            <div className="border-t bg-slate-50/50 p-4">
-              <DocumentUploadForm rackId={folder.id} />
-            </div>
-          ) : null}
         </div>
       </div>
     </section>

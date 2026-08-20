@@ -76,7 +76,7 @@ export function AddKnowledgeWizard({
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
+  const selectedFileRef = useRef<File | null>(null);
   const handledSource = useRef<string | null>(null);
   const router = useRouter();
   const [step, setStep] = useState(1);
@@ -103,7 +103,10 @@ export function AddKnowledgeWizard({
         router.refresh();
         return;
       }
-      const file = fileRef.current?.files?.[0];
+      // A successful React form action resets uncontrolled fields before this
+      // effect runs. Keep the selected File separately so the follow-up upload
+      // is not lost when the file input is cleared.
+      const file = selectedFileRef.current;
       if (!file) {
         setUploadError(
           "The source was created, but the selected file is missing.",
@@ -144,6 +147,7 @@ export function AddKnowledgeWizard({
     setFileName("");
     setUploadError(null);
     setComplete(false);
+    selectedFileRef.current = null;
     handledSource.current = null;
     formRef.current?.reset();
   }
@@ -369,13 +373,14 @@ export function AddKnowledgeWizard({
                         required
                       >
                         <Input
-                          ref={fileRef}
                           id="knowledge-file"
                           type="file"
                           accept=".pdf,.docx,.xlsx,.csv,.txt,.md,.markdown,.html,.htm"
-                          onChange={(event) =>
-                            setFileName(event.target.files?.[0]?.name ?? "")
-                          }
+                          onChange={(event) => {
+                            const file = event.target.files?.[0] ?? null;
+                            selectedFileRef.current = file;
+                            setFileName(file?.name ?? "");
+                          }}
                           required
                         />
                       </Field>

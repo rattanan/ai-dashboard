@@ -17,7 +17,7 @@ import { requireAuthorization } from "@/server/auth/authorization";
 import { hasPermission } from "@/server/auth/permissions";
 import { db } from "@/server/db";
 
-export const metadata = { title: "All knowledge" };
+export const metadata = { title: "Manage Source" };
 
 type UnifiedSource = {
   id: string;
@@ -254,7 +254,7 @@ export default async function SourcesPage({
   return (
     <div className="space-y-6">
       <PageHeader
-        title="All knowledge"
+        title="Manage Source"
         description="Find and govern files, copied text, URLs, shared folders, live databases, and API tools in one place."
         action={
           canKnowledge ? (

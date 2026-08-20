@@ -105,15 +105,8 @@ const groups: Array<{ label: string; items: NavigationItem[] }> = [
     label: "Sources",
     items: [
       {
-        href: "/workspace/sources",
-        label: "All knowledge",
-        icon: LibraryBig,
-        showAny: ["knowledgeManagement", "dataConnections", "legacyApis"],
-        exact: true,
-      },
-      {
         href: "/workspace/admin/knowledge",
-        label: "Knowledge Folders",
+        label: "All knowledge",
         icon: FolderTree,
         show: "knowledgeManagement",
         activePrefixes: ["/workspace/admin/knowledge/sources"],
@@ -229,6 +222,13 @@ const groups: Array<{ label: string; items: NavigationItem[] }> = [
         label: "Overview",
         icon: Gauge,
         show: "userManagement",
+        exact: true,
+      },
+      {
+        href: "/workspace/sources",
+        label: "Manage Source",
+        icon: LibraryBig,
+        showAny: ["knowledgeManagement", "dataConnections", "legacyApis"],
         exact: true,
       },
       {

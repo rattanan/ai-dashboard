@@ -116,7 +116,10 @@ export async function addKnowledgeAction(_state: unknown, formData: FormData) {
         },
         select: { id: true },
       });
-      revalidateKnowledge();
+      // Do not revalidate here. A Server Action revalidation sends a fresh RSC
+      // tree in the same response and can remount the wizard before its
+      // follow-up Route Handler upload reads the selected File. The client
+      // refreshes the knowledge pages after that upload succeeds.
       return success({ id: source.id, uploadRequired: true as const });
     } catch {
       return failure(

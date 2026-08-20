@@ -7,7 +7,7 @@ import { requireAuthorization } from "@/server/auth/authorization";
 import { requirePermission } from "@/server/auth/permissions";
 import { db } from "@/server/db";
 
-export const metadata = { title: "Knowledge folders" };
+export const metadata = { title: "All knowledge" };
 
 export default async function KnowledgeExplorerPage() {
   const context = await requireAuthorization();
@@ -25,9 +25,22 @@ export default async function KnowledgeExplorerPage() {
             },
             documents: {
               where: { active: true },
+              orderBy: { updatedAt: "desc" },
               select: {
+                id: true,
+                name: true,
+                mimeType: true,
+                updatedAt: true,
                 currentVersion: {
-                  select: { _count: { select: { chunks: true } } },
+                  select: {
+                    status: true,
+                    _count: { select: { chunks: true } },
+                  },
+                },
+                versions: {
+                  orderBy: { version: "desc" },
+                  take: 1,
+                  select: { status: true },
                 },
               },
             },
@@ -70,6 +83,17 @@ export default async function KnowledgeExplorerPage() {
       ),
       updatedAt: dateFormatter.format(source.updatedAt),
       botNames: source.botAssignments.map((item) => item.bot.name),
+      documents: source.documents.map((document) => ({
+        id: document.id,
+        name: document.name,
+        mimeType: document.mimeType,
+        status:
+          document.currentVersion?.status ??
+          document.versions[0]?.status ??
+          "UPLOADED",
+        chunkCount: document.currentVersion?._count.chunks ?? 0,
+        updatedAt: dateFormatter.format(document.updatedAt),
+      })),
     })),
   }));
 
@@ -77,7 +101,7 @@ export default async function KnowledgeExplorerPage() {
     <div className="space-y-6">
       <PageHeader
         eyebrow="Knowledge"
-        title="Knowledge folders"
+        title="All knowledge"
         description="Choose a folder to browse its sources. Open any source to review its configuration, documents, indexing status, and refresh history."
         action={
           <div className="flex flex-wrap gap-2">
