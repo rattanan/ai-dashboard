@@ -4,11 +4,13 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:local": "bash scripts/dev-local.sh",
     "prebuild": "prisma generate",
     "build": "next build",
     "start": "next start",
     "worker:build": "tsc -p tsconfig.worker.json",
     "worker:dev": "tsx apps/worker/main.ts",
+    "worker:watch": "tsx watch apps/worker/main.ts",
     "worker:start": "node dist-worker/apps/worker/main.js",
     "worker:health": "tsx apps/worker/health.ts",
     "lint": "eslint .",

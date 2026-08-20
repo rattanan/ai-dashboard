@@ -101,13 +101,30 @@ Next.js 16.3 App Router, React 19, TypeScript, Tailwind CSS 4, shadcn-style loca
 
 Requirements: Node.js 22+, npm, and Docker for local databases and connector integration tests.
 
+For day-to-day development, configure `.env` once and use the local development launcher:
+
+```bash
+cp .env.example .env
+# Replace the placeholder secrets in .env, then run:
+npm run dev:local
+```
+
+The launcher installs changed npm dependencies, starts PostgreSQL and Redis in
+Docker, generates the Prisma client, applies pending migrations, and runs both
+Next.js and the worker in watch mode. Press `Ctrl+C` to stop the application and
+worker. PostgreSQL and Redis remain available with their data preserved; stop
+them with `docker compose stop postgres redis` when they are no longer needed.
+
+The equivalent manual setup is:
+
 ```bash
 npm install
 cp .env.example .env
-docker compose up -d postgres redis worker mysql-fixture
+docker compose up -d --wait postgres redis
 npm run db:generate
 npm run db:deploy
 npm run db:seed
+npm run worker:watch # Run in a second terminal
 npm run dev
 ```
 
